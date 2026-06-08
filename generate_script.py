@@ -155,15 +155,18 @@ def parse_chapter_script(script_path: str) -> tuple[list[str], dict]:
     """
     台本ファイルをパースして字幕行リストとメタデータを返す。
     ## title: / ## background: があればメタデータとして取得。
-    --- 以降が本文。なければファイル全体を本文として扱う（プレーンテキスト対応）。
+    単独行の --- 以降が本文。なければファイル全体を本文として扱う（プレーンテキスト対応）。
     """
     content = Path(script_path).read_text(encoding="utf-8")
     meta = {}
     all_lines = []
 
-    has_separator = "---" in content
-    in_script = not has_separator  # セパレータがなければ最初から本文
+    # 単独行の "---" があるかチェック（文字列内の --- ではなく行として）
+    has_separator = any(line.strip() == "---" for line in content.splitlines())
+    in_script = not has_separator
     current_section_text = ""
+
+    print(f"  台本: {len(content)}文字 / セパレータ: {'あり' if has_separator else 'なし'}")
 
     for line in content.splitlines():
         stripped = line.strip()
@@ -190,6 +193,10 @@ def parse_chapter_script(script_path: str) -> tuple[list[str], dict]:
 
     if current_section_text.strip():
         all_lines.extend(split_into_lines(current_section_text.strip()))
+
+    print(f"  パース結果: {len(all_lines)}行 (空行含む)")
+    if not any(l.strip() for l in all_lines):
+        raise ValueError(f"台本から有効なテキストが取得できませんでした。ファイル内容を確認してください: {script_path}")
 
     return all_lines, meta
 
