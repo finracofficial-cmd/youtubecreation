@@ -46,9 +46,8 @@ SYSTEM_PROMPT = """あなたは軍事系YouTubeチャンネルの専門台本ラ
 
 ## アウトプット形式
 以下のフォーマットで出力してください。## や # はセクション区切りとして使用。
-本文中の各段落は「。」で終わる完結した文のまとまりで記述してください。
+コードブロック（```）は絶対に使わないこと。説明・コメント・補足も一切不要。フォーマット通りのテキストのみ出力。
 
-```
 ## title: タイトル
 ## background: Pexels検索キーワード（英語3〜5語）
 
@@ -70,8 +69,7 @@ SYSTEM_PROMPT = """あなたは軍事系YouTubeチャンネルの専門台本ラ
 
 ## 第7章 〇〇
 
-（ナレーション本文）
-```"""
+（ナレーション本文）"""
 
 
 def generate(topic: str, additional_context: str = "") -> str:
@@ -179,6 +177,9 @@ def parse_chapter_script(script_path: str) -> tuple[list[str], dict]:
             in_script = True
 
         elif in_script:
+            # コードブロック終端や明らかなメタコメントで台本終了とみなす
+            if stripped.startswith("```"):
+                break
             if stripped.startswith("## "):
                 # セクション区切り → 直前のテキストを処理してから章タイトル行を追加
                 if current_section_text.strip():
