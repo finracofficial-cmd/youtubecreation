@@ -105,7 +105,7 @@ def _load_model(speaker: str = TTS_SPEAKER):
         device=TTS_DEVICE,
     )
 
-    # 明示的にロードしてネットワーク構造を確保する（可能な場合）
+    # 明示的にロードしてネットワーク構造を確保する
     print("  モデルウェイトをロード中...")
     try:
         _model.load()
@@ -113,12 +113,28 @@ def _load_model(speaker: str = TTS_SPEAKER):
     except Exception as e:
         print(f"  load() でエラー（infer時に自動ロードされます）: {e}")
 
-    # net_g またはその他の nn.Module 属性を float32 に変換
+    # net_g またはその他の nn.Module を float32 に変換し、
+    # さらに全サブモジュールに forward_pre_hook を登録してfloat16入力を遮断する
+    # （.float() はパラメータのみ変換するが、中間テンソルは変換できないため両方が必要）
+    def _fp32_pre_hook(module, args):
+        """各サブモジュールへの入力テンソルをfloat16からfloat32に強制変換するフック"""
+        new_args = []
+        changed = False
+        for a in args:
+            if isinstance(a, torch.Tensor) and a.dtype == torch.float16:
+                new_args.append(a.to(torch.float32))
+                changed = True
+            else:
+                new_args.append(a)
+        return tuple(new_args) if changed else None
+
     converted = False
     for attr_name, obj in vars(_model).items():
         if isinstance(obj, torch.nn.Module):
             obj.float()
-            print(f"  ✅ _model.{attr_name} を float32 に変換完了")
+            for m in obj.modules():
+                m.register_forward_pre_hook(_fp32_pre_hook)
+            print(f"  ✅ {attr_name}: float32変換 + {sum(1 for _ in obj.modules())}モジュールにhook登録完了")
             converted = True
     if not converted:
         print(f"  デバッグ: model attrs = {list(vars(_model).keys())}")
@@ -146,12 +162,26 @@ def synthesize(text: str, output_path: str,
     except RuntimeError as e:
         err_str = str(e)
         if "Half" in err_str or "should be the same" in err_str or "dtype" in err_str.lower():
-            # フォールバック: infer後にロードされたnet_gをfloat32に変換して再試行
-            print(f"  float dtype エラー。全nn.Moduleをfloat32に変換して再試行...")
+            # フォールバック: infer後にロードされたnet_gを変換して再試行
+            print(f"  float dtype エラー。全nn.Moduleをfloat32変換+hook登録して再試行...")
+
+            def _fp32_pre_hook(module, args):
+                new_args = []
+                changed = False
+                for a in args:
+                    if isinstance(a, torch.Tensor) and a.dtype == torch.float16:
+                        new_args.append(a.to(torch.float32))
+                        changed = True
+                    else:
+                        new_args.append(a)
+                return tuple(new_args) if changed else None
+
             for attr_name, obj in vars(model).items():
                 if isinstance(obj, torch.nn.Module):
                     obj.float()
-                    print(f"  ✅ {attr_name}.float() 完了")
+                    for m in obj.modules():
+                        m.register_forward_pre_hook(_fp32_pre_hook)
+                    print(f"  ✅ {attr_name}: 変換+hook完了")
             sr, audio = model.infer(text=text, style=style, length=1.0 / speed)
         else:
             raise
