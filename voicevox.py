@@ -116,17 +116,15 @@ def _load_model(speaker: str = TTS_SPEAKER):
     # net_g またはその他の nn.Module を float32 に変換し、
     # さらに全サブモジュールに forward_pre_hook を登録してfloat16入力を遮断する
     # （.float() はパラメータのみ変換するが、中間テンソルは変換できないため両方が必要）
+    def _to_fp32(x):
+        """テンソルをfloat32に変換（非テンソルはそのまま返す）"""
+        if isinstance(x, torch.Tensor) and x.dtype in (torch.float16, torch.bfloat16):
+            return x.to(torch.float32)
+        return x
+
     def _fp32_pre_hook(module, args):
         """各サブモジュールへの入力テンソルをfloat16からfloat32に強制変換するフック"""
-        new_args = []
-        changed = False
-        for a in args:
-            if isinstance(a, torch.Tensor) and a.dtype == torch.float16:
-                new_args.append(a.to(torch.float32))
-                changed = True
-            else:
-                new_args.append(a)
-        return tuple(new_args) if changed else None
+        return tuple(_to_fp32(a) for a in args)
 
     converted = False
     for attr_name, obj in vars(_model).items():
@@ -134,7 +132,8 @@ def _load_model(speaker: str = TTS_SPEAKER):
             obj.float()
             for m in obj.modules():
                 m.register_forward_pre_hook(_fp32_pre_hook)
-            print(f"  ✅ {attr_name}: float32変換 + {sum(1 for _ in obj.modules())}モジュールにhook登録完了")
+            n = sum(1 for _ in obj.modules())
+            print(f"  ✅ {attr_name}: float32変換 + {n}モジュールにhook登録完了")
             converted = True
     if not converted:
         print(f"  デバッグ: model attrs = {list(vars(_model).keys())}")
@@ -165,16 +164,13 @@ def synthesize(text: str, output_path: str,
             # フォールバック: infer後にロードされたnet_gを変換して再試行
             print(f"  float dtype エラー。全nn.Moduleをfloat32変換+hook登録して再試行...")
 
+            def _to_fp32(x):
+                if isinstance(x, torch.Tensor) and x.dtype in (torch.float16, torch.bfloat16):
+                    return x.to(torch.float32)
+                return x
+
             def _fp32_pre_hook(module, args):
-                new_args = []
-                changed = False
-                for a in args:
-                    if isinstance(a, torch.Tensor) and a.dtype == torch.float16:
-                        new_args.append(a.to(torch.float32))
-                        changed = True
-                    else:
-                        new_args.append(a)
-                return tuple(new_args) if changed else None
+                return tuple(_to_fp32(a) for a in args)
 
             for attr_name, obj in vars(model).items():
                 if isinstance(obj, torch.nn.Module):
