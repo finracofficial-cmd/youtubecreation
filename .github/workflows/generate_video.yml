@@ -3,8 +3,8 @@ name: 動画生成
 on:
   workflow_dispatch:
     inputs:
-      topic:
-        description: '動画のテーマ（例: 与那国島ミサイル配備と中国の脅威）'
+      script:
+        description: '台本テキストをここに貼り付け（## title: と ## background: を含む形式）'
         required: true
         type: string
       speaker:
@@ -61,6 +61,13 @@ jobs:
           key: hf-sbv2-jp-extra-v1
           restore-keys: hf-sbv2-jp-extra-
 
+      - name: 台本をファイルに保存
+        env:
+          SCRIPT_CONTENT: ${{ inputs.script }}
+        run: |
+          mkdir -p scripts
+          printf '%s' "$SCRIPT_CONTENT" > scripts/run_${{ github.run_number }}.txt
+
       - name: 動画を生成
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -68,9 +75,8 @@ jobs:
           TTS_SPEAKER: ${{ inputs.speaker }}
           TTS_DEVICE: cpu
           SUBTITLE_FONT: Noto Sans CJK JP
-          VIDEO_TOPIC: ${{ inputs.topic }}
         run: |
-          ARGS=(--topic "$VIDEO_TOPIC" --output "run_${{ github.run_number }}")
+          ARGS=(scripts/run_${{ github.run_number }}.txt --output "run_${{ github.run_number }}")
           if [ "${{ inputs.solid_bg }}" = "true" ]; then
             ARGS+=(--solid-bg)
           fi
