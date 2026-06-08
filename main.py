@@ -127,7 +127,6 @@ def run_pipeline(script_path: str, output_name: str | None = None,
 
     # ── Step 4: 背景動画取得 ──────────────────────────────────────
     print(f"\n=== Step 4: 背景動画取得 ('{bg_query}') ===")
-    raw_bg_path = str(temp_dir / "background_raw.mp4")
     looped_bg_path = str(temp_dir / "background.mp4")
 
     if use_solid_bg or not PEXELS_API_KEY:
@@ -138,9 +137,11 @@ def run_pipeline(script_path: str, output_name: str | None = None,
             width=VIDEO_WIDTH, height=VIDEO_HEIGHT, fps=VIDEO_FPS
         )
     else:
-        pexels.fetch_background(bg_query, raw_bg_path)
-        print(f"  背景動画をループ処理中（{total_duration:.1f}秒）...")
-        vid.loop_video_to_duration(raw_bg_path, looped_bg_path, total_duration)
+        clips_dir = str(temp_dir / "bg_clips")
+        print(f"  複数背景クリップをダウンロード中...")
+        clip_paths = pexels.fetch_multiple_backgrounds(bg_query, clips_dir, n=8)
+        print(f"  {len(clip_paths)}クリップを取得。各10秒でつなぎ合わせ中（合計{total_duration:.1f}秒）...")
+        vid.create_varied_background(clip_paths, looped_bg_path, total_duration, clip_duration=10.0)
 
     # ── Step 5: 最終合成 ──────────────────────────────────────────
     print("\n=== Step 5: 動画合成（背景＋音声＋字幕） ===")

@@ -78,8 +78,37 @@ def fetch_background(query: str, output_path: str, prefer_index: int | None = No
 
     raise ValueError(f"'{query}' の検索結果 {len(videos)} 件全てでURLが取得できませんでした")
 
+def fetch_multiple_backgrounds(query: str, output_dir: str, n: int = 8) -> list[str]:
+    """
+    キーワードで複数の背景動画を検索・ダウンロードする。
+    返り値: ダウンロードした動画ファイルパスのリスト
+    """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    videos = search_videos(query, per_page=min(n * 2, 30))  # 余裕を持って取得
+    if not videos:
+        raise ValueError(f"'{query}' に一致する動画が見つかりませんでした")
 
-# Pexels APIキーなしでも動作するフォールバック（単色背景）
+    random.shuffle(videos)
+    downloaded = []
+    for i, video in enumerate(videos):
+        if len(downloaded) >= n:
+            break
+        url = get_best_url(video)
+        if not url:
+            continue
+        out_path = str(Path(output_dir) / f"clip_{i:02d}.mp4")
+        try:
+            print(f"  [{len(downloaded)+1}/{n}] Pexels ID={video['id']} ダウンロード中...")
+            download_video(url, out_path)
+            downloaded.append(out_path)
+        except Exception as e:
+            print(f"  スキップ（ダウンロード失敗: {e}）")
+
+    if not downloaded:
+        raise ValueError(f"'{query}' の動画を1件もダウンロードできませんでした")
+    return downloaded
+
+
 def generate_solid_background(output_path: str, duration: float,
                                color: str = "black",
                                width: int = 1920, height: int = 1080,
