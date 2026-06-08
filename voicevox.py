@@ -55,16 +55,15 @@ def _load_model(speaker: str = TTS_SPEAKER):
     bert_models.load_tokenizer(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
 
     import torch
+    # CPUではfloat16非対応のため、テンソルのデフォルト型をfloat32に設定
+    torch.set_default_dtype(torch.float32)
+
     _model = TTSModel(
         model_path=model_file,
         config_path=config_file,
         style_vec_path=style_file,
         device=TTS_DEVICE,
     )
-    # モデルを明示的にロードしてからfloat32に変換（CPUではfloat16非対応）
-    _model.load()
-    if _model.model is not None:
-        _model.model.float()
     print(f"  ✅ TTSモデル準備完了: {speaker}")
     return _model, _model_sr
 
