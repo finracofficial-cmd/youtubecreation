@@ -153,21 +153,22 @@ def split_into_lines(text: str, max_chars: int = 55) -> list[str]:
 
 def parse_chapter_script(script_path: str) -> tuple[list[str], dict]:
     """
-    章立て形式の台本ファイルをパースして字幕行リストとメタデータを返す。
-    ## で始まる行はセクション区切り（音声なし）として扱う。
+    台本ファイルをパースして字幕行リストとメタデータを返す。
+    ## title: / ## background: があればメタデータとして取得。
+    --- 以降が本文。なければファイル全体を本文として扱う（プレーンテキスト対応）。
     """
     content = Path(script_path).read_text(encoding="utf-8")
     meta = {}
     all_lines = []
 
-    in_script = False
+    has_separator = "---" in content
+    in_script = not has_separator  # セパレータがなければ最初から本文
     current_section_text = ""
 
     for line in content.splitlines():
         stripped = line.strip()
 
         if stripped.startswith("## title:") or stripped.startswith("## background:"):
-            # メタデータ
             kv = stripped[2:].strip()
             if ":" in kv:
                 k, v = kv.split(":", 1)
@@ -177,20 +178,16 @@ def parse_chapter_script(script_path: str) -> tuple[list[str], dict]:
             in_script = True
 
         elif in_script:
-            # コードブロック終端や明らかなメタコメントで台本終了とみなす
             if stripped.startswith("```"):
                 break
             if stripped.startswith("## "):
-                # セクション区切り → 直前のテキストを処理してから章タイトル行を追加
                 if current_section_text.strip():
                     all_lines.extend(split_into_lines(current_section_text.strip()))
                     current_section_text = ""
-                # 章タイトルは空行として区切りを入れる（音声は短い無音）
-                all_lines.append("")  # セクション間の間（無音）
+                all_lines.append("")  # セクション間の無音
             elif stripped:
                 current_section_text += stripped
 
-    # 最後のセクション
     if current_section_text.strip():
         all_lines.extend(split_into_lines(current_section_text.strip()))
 

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       script:
-        description: '台本テキストをここに貼り付け（## title: と ## background: を含む形式）'
+        description: '台本テキストをここに貼り付け（ナレーション本文をそのまま貼るだけでOK）'
         required: true
         type: string
       speaker:
