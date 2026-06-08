@@ -3,8 +3,8 @@ name: 動画生成
 on:
   workflow_dispatch:
     inputs:
-      script:
-        description: '台本テキストをここに貼り付け（ナレーション本文をそのまま貼るだけでOK）'
+      script_url:
+        description: 'GitHub GistのURL（例: https://gist.github.com/username/abcdef123456）'
         required: true
         type: string
       speaker:
@@ -61,12 +61,34 @@ jobs:
           key: hf-sbv2-jp-extra-v1
           restore-keys: hf-sbv2-jp-extra-
 
-      - name: 台本をファイルに保存
-        env:
-          SCRIPT_CONTENT: ${{ inputs.script }}
+      - name: GistからスクリプトをDL
         run: |
           mkdir -p scripts
-          printf '%s' "$SCRIPT_CONTENT" > scripts/run_${{ github.run_number }}.txt
+          python - <<'EOF'
+          import re, urllib.request, json, sys
+          url = "${{ inputs.script_url }}"
+          # Gist IDを抽出
+          m = re.search(r'gist\.github\.com/[^/]+/([0-9a-f]+)', url)
+          if not m:
+              print(f"❌ Gist URLが正しくありません: {url}")
+              sys.exit(1)
+          gist_id = m.group(1)
+          api_url = f"https://api.github.com/gists/{gist_id}"
+          req = urllib.request.Request(api_url, headers={"User-Agent": "Mozilla/5.0"})
+          with urllib.request.urlopen(req) as r:
+              data = json.load(r)
+          # 最初のファイルを取得
+          files = data.get("files", {})
+          if not files:
+              print("❌ Gistにファイルがありません")
+              sys.exit(1)
+          file_info = next(iter(files.values()))
+          content = file_info.get("content", "")
+          out_path = "scripts/run_${{ github.run_number }}.txt"
+          with open(out_path, "w", encoding="utf-8") as f:
+              f.write(content)
+          print(f"✅ Gistから取得: {len(content)}文字 → {out_path}")
+          EOF
 
       - name: 動画を生成
         env:
