@@ -4,3 +4,7 @@ moviepy>=1.0.3
 Pillow>=10.0.0
 python-dotenv>=1.0.0
 anthropic>=0.40.0
+style-bert-vits2>=2.0.0
+soundfile>=0.12.0
+huggingface-hub>=0.23.0
+gradio-client>=1.0.0

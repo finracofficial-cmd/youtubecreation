@@ -3,10 +3,17 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# VOICEVOX設定
-VOICEVOX_URL = os.getenv("VOICEVOX_URL", "http://localhost:50021")
-VOICEVOX_SPEAKER = int(os.getenv("VOICEVOX_SPEAKER", "3"))  # 3=ずんだもん(ノーマル)
-VOICEVOX_SPEED = float(os.getenv("VOICEVOX_SPEED", "1.1"))
+# Style-BERT-VITS2 TTS設定
+# スピーカー: jvnv-M1-jp / jvnv-M2-jp / jvnv-F1-jp / jvnv-F2-jp
+TTS_SPEAKER = os.getenv("TTS_SPEAKER", "jvnv-M1-jp")
+TTS_SPEED   = float(os.getenv("TTS_SPEED", "1.1"))
+TTS_STYLE   = os.getenv("TTS_STYLE", "Neutral")
+TTS_DEVICE  = os.getenv("TTS_DEVICE", "cpu")
+
+# 後方互換（旧VOICEVOX設定名でも動くように）
+VOICEVOX_URL     = os.getenv("VOICEVOX_URL", "http://localhost:50021")
+VOICEVOX_SPEAKER = TTS_SPEAKER
+VOICEVOX_SPEED   = TTS_SPEED
 
 # Pexels API
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")

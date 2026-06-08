@@ -1,0 +1,91 @@
+name: 動画生成
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: '動画のテーマ（例: 与那国島ミサイル配備と中国の脅威）'
+        required: true
+        type: string
+      speaker:
+        description: 'スピーカー'
+        required: false
+        default: 'jvnv-M1-jp'
+        type: choice
+        options:
+          - jvnv-M1-jp
+          - jvnv-M2-jp
+          - jvnv-F1-jp
+          - jvnv-F2-jp
+      solid_bg:
+        description: '黒背景を使用（テスト用・高速）'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: システム依存パッケージをインストール
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            ffmpeg \
+            fonts-noto-cjk \
+            fonts-noto-cjk-extra
+
+      - name: PyTorch（CPU版）をインストール
+        run: |
+          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Pythonパッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: HuggingFaceモデルをキャッシュから復元
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-sbv2-jp-extra-v1
+          restore-keys: hf-sbv2-jp-extra-
+
+      - name: 動画を生成
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          TTS_SPEAKER: ${{ inputs.speaker }}
+          TTS_DEVICE: cpu
+          SUBTITLE_FONT: Noto Sans CJK JP
+        run: |
+          ARGS="--topic \"${{ inputs.topic }}\""
+          if [ "${{ inputs.solid_bg }}" = "true" ]; then
+            ARGS="$ARGS --solid-bg"
+          fi
+          eval python main.py $ARGS
+
+      - name: 生成された動画をアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-${{ github.run_number }}
+          path: output/*.mp4
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: 台本もアップロード
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: script-${{ github.run_number }}
+          path: scripts/*.txt
+          retention-days: 30

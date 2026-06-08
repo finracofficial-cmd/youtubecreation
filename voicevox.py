@@ -1,60 +1,114 @@
-"""VOICEVOX HTTP APIを使った音声合成モジュール"""
-import json
-import time
+"""Style-BERT-VITS2を使った音声合成モジュール（voicevox.pyと同じインターフェース）"""
 import wave
-import requests
+import struct
+import time
 from pathlib import Path
-from config import VOICEVOX_URL, VOICEVOX_SPEAKER, VOICEVOX_SPEED
+from config import TTS_SPEAKER, TTS_SPEED, TTS_STYLE, TTS_DEVICE
+
+# グローバルモデルキャッシュ（初回のみダウンロード・ロード）
+_model = None
+_model_sr = 44100
+
+HF_REPO = "litagin/Style-Bert-VITS2-2.0-base-JP-Extra"
+
+AVAILABLE_SPEAKERS = [
+    "jvnv-M1-jp",  # 男性1（ニュースナレーター向け）
+    "jvnv-M2-jp",  # 男性2
+    "jvnv-F1-jp",  # 女性1
+    "jvnv-F2-jp",  # 女性2
+]
 
 
-def synthesize(text: str, output_path: str, speaker: int = VOICEVOX_SPEAKER,
-               speed: float = VOICEVOX_SPEED, max_retry: int = 10) -> float:
+def _load_model(speaker: str = TTS_SPEAKER):
+    global _model, _model_sr
+
+    if _model is not None:
+        return _model, _model_sr
+
+    try:
+        from style_bert_vits2.nlp import bert_models
+        from style_bert_vits2.constants import Languages
+        from style_bert_vits2.tts_model import TTSModel
+        from huggingface_hub import hf_hub_download
+    except ImportError:
+        raise RuntimeError(
+            "style-bert-vits2 が未インストールです。\n"
+            "pip install style-bert-vits2 soundfile huggingface-hub を実行してください。"
+        )
+
+    print(f"  モデルダウンロード中: {speaker} （初回のみ）...")
+    model_file  = hf_hub_download(HF_REPO, f"{speaker}/{speaker}_e160_s14000.safetensors")
+    config_file = hf_hub_download(HF_REPO, f"{speaker}/config.json")
+    style_file  = hf_hub_download(HF_REPO, f"{speaker}/style_vectors.npy")
+
+    print("  日本語BERTモデル読み込み中...")
+    bert_models.load_model(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
+    bert_models.load_tokenizer(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
+
+    _model = TTSModel(
+        model_path=model_file,
+        config_path=config_file,
+        style_vec_path=style_file,
+        device=TTS_DEVICE,
+    )
+    print(f"  ✅ TTSモデル準備完了: {speaker}")
+    return _model, _model_sr
+
+
+def synthesize(text: str, output_path: str,
+               speaker: str = TTS_SPEAKER,
+               speed: float = TTS_SPEED,
+               style: str = TTS_STYLE,
+               **_kwargs) -> float:
     """
-    テキストをVOICEVOXで音声合成してWAVファイルに保存する。
+    テキストをStyle-BERT-VITS2で音声合成してWAVファイルに保存する。
     返り値: 生成された音声の長さ（秒）
+    voicevox.synthesize() と同じインターフェース。
     """
-    query = None
-    for _ in range(max_retry):
-        try:
-            r = requests.post(
-                f"{VOICEVOX_URL}/audio_query",
-                params={"text": text, "speaker": speaker},
-                timeout=(10.0, 60.0)
-            )
-            r.raise_for_status()
-            query = r.json()
-            break
-        except Exception:
-            time.sleep(1)
+    import soundfile as sf
 
-    if query is None:
-        raise RuntimeError(f"VOICEVOX audio_query 失敗: '{text}'")
+    model, _ = _load_model(speaker)
+    sr, audio = model.infer(
+        text=text,
+        style=style,
+        length=1.0 / speed,   # length が大きいほど遅くなる
+    )
 
-    query["speedScale"] = speed
-    query["prePhonemeLength"] = 0.1
-    query["postPhonemeLength"] = 0.3
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    sf.write(output_path, audio, sr, subtype="PCM_16")
 
-    wav_data = None
-    for _ in range(max_retry):
-        try:
-            r = requests.post(
-                f"{VOICEVOX_URL}/synthesis",
-                params={"speaker": speaker},
-                data=json.dumps(query),
-                headers={"Content-Type": "application/json"},
-                timeout=(10.0, 300.0)
-            )
-            r.raise_for_status()
-            wav_data = r.content
-            break
-        except Exception:
-            time.sleep(1)
-
-    if wav_data is None:
-        raise RuntimeError(f"VOICEVOX synthesis 失敗: '{text}'")
-
-    Path(output_path).write_bytes(wav_data)
     return _get_wav_duration(output_path)
+
+
+def synthesize_batch(lines: list[str], output_dir: str,
+                     speaker: str = TTS_SPEAKER,
+                     speed: float = TTS_SPEED,
+                     **_kwargs) -> list[tuple[str, float]]:
+    """
+    複数行のテキストを一括音声合成する。
+    返り値: [(wavファイルパス, 秒数), ...]
+    voicevox.synthesize_batch() と同じインターフェース。
+    """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    # モデルを事前にロード（進捗表示のため）
+    _load_model(speaker)
+
+    results = []
+    for i, line in enumerate(lines):
+        wav_path = str(Path(output_dir) / f"audio_{i:03d}.wav")
+        if not line.strip():
+            _write_silence(wav_path, 0.5)
+            results.append((wav_path, 0.5))
+            continue
+
+        t0 = time.time()
+        duration = synthesize(line, wav_path, speaker=speaker, speed=speed)
+        elapsed = time.time() - t0
+        results.append((wav_path, duration))
+        print(f"  [{i+1}/{len(lines)}] {line[:25]}... → {duration:.2f}s  ({elapsed:.1f}s)")
+
+    return results
 
 
 def _get_wav_duration(wav_path: str) -> float:
@@ -62,39 +116,8 @@ def _get_wav_duration(wav_path: str) -> float:
         return wf.getnframes() / wf.getframerate()
 
 
-def get_speakers() -> list[dict]:
-    """利用可能なスピーカー一覧を取得する"""
-    r = requests.get(f"{VOICEVOX_URL}/speakers", timeout=10)
-    r.raise_for_status()
-    return r.json()
-
-
-def synthesize_batch(lines: list[str], output_dir: str,
-                     speaker: int = VOICEVOX_SPEAKER,
-                     speed: float = VOICEVOX_SPEED) -> list[tuple[str, float]]:
-    """
-    複数行のテキストを一括音声合成する。
-    返り値: [(wavファイルパス, 秒数), ...]
-    """
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    results = []
-    for i, line in enumerate(lines):
-        if not line.strip():
-            # 空行はスキップ（0.5秒の無音を挿入）
-            wav_path = str(Path(output_dir) / f"audio_{i:03d}.wav")
-            _write_silence(wav_path, 0.5)
-            results.append((wav_path, 0.5))
-            continue
-        wav_path = str(Path(output_dir) / f"audio_{i:03d}.wav")
-        duration = synthesize(line, wav_path, speaker=speaker, speed=speed)
-        results.append((wav_path, duration))
-        print(f"  [{i+1}/{len(lines)}] '{line[:20]}...' → {duration:.2f}s")
-    return results
-
-
-def _write_silence(output_path: str, duration: float, sample_rate: int = 24000):
+def _write_silence(output_path: str, duration: float, sample_rate: int = 44100):
     """指定秒数の無音WAVを生成する"""
-    import struct
     num_frames = int(sample_rate * duration)
     with wave.open(output_path, "w") as wf:
         wf.setnchannels(1)
