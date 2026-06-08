@@ -55,6 +55,28 @@ def _resolve_speaker(speaker_arg: str | None) -> str:
     sys.exit(1)
 
 
+def _suggest_bg_query(script_text: str) -> str:
+    """台本テキストからPexels検索用の英語キーワードをClaudeに生成させる"""
+    import anthropic
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    # 長すぎる場合は先頭1500文字だけ渡す
+    excerpt = script_text[:1500]
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=60,
+        messages=[{
+            "role": "user",
+            "content": (
+                "以下の台本の内容に合う背景映像をPexelsで検索するための英語キーワードを"
+                "3〜5語で1行だけ出力してください。説明や記号は不要です。\n\n" + excerpt
+            )
+        }]
+    )
+    query = response.content[0].text.strip().splitlines()[0]
+    print(f"  背景KW（AI生成）: {query}")
+    return query
+
+
 def run_pipeline(script_path: str, output_name: str | None = None,
                  use_solid_bg: bool = False, bg_query_override: str | None = None,
                  dry_run: bool = False, speaker_id: str | None = None):
@@ -80,7 +102,7 @@ def run_pipeline(script_path: str, output_name: str | None = None,
     print(f"\n=== 台本解析: {script_path} ===")
     lines, meta = parse_chapter_script(str(script_path))
     title = meta.get("title", output_name)
-    bg_query = bg_query_override or meta.get("background", "military ocean warship")
+    bg_query = bg_query_override or meta.get("background") or _suggest_bg_query(script_path.read_text(encoding="utf-8"))
     nonempty_lines = [l for l in lines if l.strip()]
 
     print(f"  タイトル  : {title}")
