@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 """
 YouTube動画自動生成パイプライン
-ニュース解説系・フル背景動画＋字幕スタイル
+軍事系ニュース解説・フル背景動画＋字幕スタイル
+
+使い方:
+  # テーマから台本生成→動画生成まで全自動
+  python main.py --topic "中国の空母戦力と日本の対応策"
+
+  # 既存の台本ファイルから動画生成
+  python main.py scripts/my_script.txt
+
+  # テスト用（黒背景・VOICEVOXなし確認）
+  python main.py scripts/sample.txt --solid-bg --dry-run
 """
 import argparse
-import shutil
 import sys
 from pathlib import Path
 
@@ -18,48 +27,17 @@ from config import (
 )
 
 
-def load_script(script_path: str) -> tuple[list[str], dict]:
-    """
-    台本ファイルを読み込む。
-    形式:
-      # メタデータ行（先頭 # で始まる）
-      ## background: city night  ← Pexels検索キーワード
-      ## title: 動画タイトル
-      ---
-      ナレーション行1
-      ナレーション行2
-      ...
-    """
-    content = Path(script_path).read_text(encoding="utf-8")
-    meta = {}
-    lines = []
+def run_pipeline(script_path: str, output_name: str | None = None,
+                 use_solid_bg: bool = False, bg_query_override: str | None = None,
+                 dry_run: bool = False):
+    """動画生成パイプライン本体"""
+    from generate_script import parse_chapter_script
 
-    in_script = False
-    for line in content.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("##"):
-            # メタデータ: ## key: value
-            kv = stripped[2:].strip()
-            if ":" in kv:
-                k, v = kv.split(":", 1)
-                meta[k.strip()] = v.strip()
-        elif stripped == "---":
-            in_script = True
-        elif in_script:
-            lines.append(stripped)
-
-    return lines, meta
-
-
-def run(script_path: str, output_name: str | None = None,
-        use_solid_bg: bool = False, bg_query_override: str | None = None):
-    """メインパイプライン実行"""
     script_path = Path(script_path)
     if not script_path.exists():
         print(f"❌ 台本ファイルが見つかりません: {script_path}")
         sys.exit(1)
 
-    # 出力ファイル名
     if output_name is None:
         output_name = script_path.stem
 
@@ -69,24 +47,31 @@ def run(script_path: str, output_name: str | None = None,
     output_dir.mkdir(parents=True, exist_ok=True)
     final_output = output_dir / f"{output_name}.mp4"
 
-    print(f"\n=== 台本読み込み: {script_path} ===")
-    lines, meta = load_script(str(script_path))
+    print(f"\n=== 台本解析: {script_path} ===")
+    lines, meta = parse_chapter_script(str(script_path))
     title = meta.get("title", output_name)
-    bg_query = bg_query_override or meta.get("background", "nature landscape")
-    print(f"  タイトル: {title}")
-    print(f"  行数: {len(lines)}")
+    bg_query = bg_query_override or meta.get("background", "military ocean warship")
+    nonempty_lines = [l for l in lines if l.strip()]
+    print(f"  タイトル  : {title}")
+    print(f"  字幕行数  : {len(nonempty_lines)} 行")
     print(f"  背景キーワード: {bg_query}")
+
+    if dry_run:
+        print("\n[DRY RUN] 台本解析のみ実行しました。")
+        for i, l in enumerate(lines[:10]):
+            print(f"  {i+1:3d}: {l[:60]}")
+        if len(lines) > 10:
+            print(f"  ... 以下 {len(lines)-10} 行")
+        return
 
     # ── Step 1: VOICEVOX音声合成 ──────────────────────────────────
     print(f"\n=== Step 1: VOICEVOX音声合成 ({len(lines)}行) ===")
     try:
-        audio_results = voicevox.synthesize_batch(
-            lines, str(temp_dir / "audio")
-        )
+        audio_results = voicevox.synthesize_batch(lines, str(temp_dir / "audio"))
     except RuntimeError as e:
         print(f"❌ VOICEVOX接続失敗: {e}")
-        print("  VOICEVOXエンジンが起動しているか確認してください")
-        print("  起動コマンド: ./run.sh (または VoiceVox.exeを起動)")
+        print("  VOICEVOXエンジンを起動してから再実行してください")
+        print("  → https://voicevox.hiroshiba.jp/")
         sys.exit(1)
 
     wav_files = [r[0] for r in audio_results]
@@ -98,7 +83,6 @@ def run(script_path: str, output_name: str | None = None,
     print("\n=== Step 2: 音声ファイル連結 ===")
     concat_audio_path = str(temp_dir / "narration.wav")
     vid.concat_audio(wav_files, concat_audio_path)
-    print(f"  → {concat_audio_path}")
 
     # ── Step 3: 字幕ファイル生成 ──────────────────────────────────
     print("\n=== Step 3: 字幕ファイル生成 ===")
@@ -107,7 +91,6 @@ def run(script_path: str, output_name: str | None = None,
     srt_path = str(temp_dir / "subtitle.srt")
     subtitle.generate_srt(lines, durations, srt_path)
     print(f"  → {ass_path}")
-    print(f"  → {srt_path}")
 
     # ── Step 4: 背景動画取得 ──────────────────────────────────────
     print(f"\n=== Step 4: 背景動画取得 ('{bg_query}') ===")
@@ -125,52 +108,109 @@ def run(script_path: str, output_name: str | None = None,
         pexels.fetch_background(bg_query, raw_bg_path)
         print(f"  背景動画をループ処理中（{total_duration:.1f}秒）...")
         vid.loop_video_to_duration(raw_bg_path, looped_bg_path, total_duration)
-    print(f"  → {looped_bg_path}")
 
     # ── Step 5: 最終合成 ──────────────────────────────────────────
     print("\n=== Step 5: 動画合成（背景＋音声＋字幕） ===")
     vid.assemble(looped_bg_path, concat_audio_path, ass_path,
                  str(final_output), total_duration)
-    print(f"\n✅ 完成: {final_output}")
-    print(f"   サイズ: {final_output.stat().st_size / 1024 / 1024:.1f} MB")
 
+    size_mb = final_output.stat().st_size / 1024 / 1024
+    print(f"\n✅ 完成: {final_output}")
+    print(f"   長さ: {total_duration/60:.1f}分 / サイズ: {size_mb:.1f}MB")
     return str(final_output)
+
+
+def cmd_generate_and_run(topic: str, context: str, output_name: str | None,
+                         use_solid_bg: bool, bg_query_override: str | None):
+    """台本生成→動画生成まで全自動実行"""
+    import os
+    from generate_script import generate, save_script
+
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("❌ ANTHROPIC_API_KEY が設定されていません（.envに追加してください）")
+        sys.exit(1)
+
+    print(f"\n=== 台本生成: '{topic}' ===")
+    script_text = generate(topic, context)
+    script_path = save_script(script_text, output_name)
+    print(f"  → 台本保存: {script_path}")
+    print(f"  → 文字数: {len(script_text):,}")
+
+    run_pipeline(script_path, output_name, use_solid_bg, bg_query_override)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="YouTube動画自動生成パイプライン（VOICEVOX＋Pexels＋FFmpeg）"
+        description="YouTube動画自動生成パイプライン（軍事系ニュース解説スタイル）",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+使用例:
+  # テーマから全自動生成（台本→音声→動画）
+  python main.py --topic "中国の空母戦力と日本の対応策"
+
+  # 既存台本から動画生成
+  python main.py scripts/sample_military.txt
+
+  # 台本のみ生成（動画は作らない）
+  python generate_script.py "イージス艦の迎撃能力" -o my_script.txt
+
+  # テスト（VOICEVOXなし・黒背景）
+  python main.py scripts/sample_military.txt --solid-bg --dry-run
+
+  # スピーカー一覧
+  python main.py --list-speakers
+        """
     )
-    parser.add_argument("script", nargs="?",
-                        help="台本ファイルのパス（省略時はscripts/内のファイルを自動検索）")
+
+    # モード選択
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("script", nargs="?",
+                       help="既存の台本ファイルパス")
+    group.add_argument("--topic", metavar="TOPIC",
+                       help="動画テーマ（指定するとClaude APIで台本を自動生成）")
+
+    # オプション
     parser.add_argument("-o", "--output", help="出力ファイル名（拡張子なし）")
+    parser.add_argument("--context", default="",
+                        help="台本生成の追加コンテキスト（--topicと併用）")
     parser.add_argument("--solid-bg", action="store_true",
-                        help="Pexels不使用・黒背景で生成（テスト用）")
-    parser.add_argument("--bg", help="Pexels検索キーワードを上書き")
+                        help="Pexels不使用・黒背景（テスト用）")
+    parser.add_argument("--bg", metavar="KEYWORD",
+                        help="Pexels検索キーワード上書き（英語）")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="台本解析のみ（音声・動画生成をスキップ）")
     parser.add_argument("--list-speakers", action="store_true",
-                        help="VOICEVOXのスピーカー一覧を表示")
+                        help="VOICEVOXスピーカー一覧を表示")
+
     args = parser.parse_args()
 
     if args.list_speakers:
-        speakers = voicevox.get_speakers()
-        for s in speakers:
-            for style in s["styles"]:
-                print(f"  ID: {style['id']:3d} | {s['name']} ({style['name']})")
+        try:
+            speakers = voicevox.get_speakers()
+            print("利用可能なVOICEVOXスピーカー:")
+            for s in speakers:
+                for style in s["styles"]:
+                    print(f"  ID: {style['id']:3d} | {s['name']} ({style['name']})")
+        except Exception as e:
+            print(f"❌ VOICEVOX接続失敗: {e}")
         return
 
-    # 台本ファイルの特定
-    script_path = args.script
-    if script_path is None:
-        scripts = list(Path(SCRIPTS_DIR).glob("*.txt"))
+    if args.topic:
+        cmd_generate_and_run(
+            args.topic, args.context, args.output,
+            args.solid_bg, args.bg
+        )
+    elif args.script:
+        run_pipeline(args.script, args.output, args.solid_bg, args.bg, args.dry_run)
+    else:
+        # scripts/から自動検索
+        scripts = sorted(Path(SCRIPTS_DIR).glob("*.txt"))
         if not scripts:
-            print(f"❌ {SCRIPTS_DIR}/ に台本ファイルが見つかりません")
-            print("   使い方: python main.py <台本ファイル.txt>")
+            print(f"❌ 台本ファイルが見つかりません: {SCRIPTS_DIR}/")
+            print("   python main.py --topic 'テーマ' で台本から自動生成できます")
             sys.exit(1)
-        script_path = str(scripts[0])
-        print(f"  台本自動選択: {script_path}")
-
-    run(script_path, args.output, use_solid_bg=args.solid_bg,
-        bg_query_override=args.bg)
+        print(f"  台本自動選択: {scripts[0]}")
+        run_pipeline(str(scripts[0]), args.output, args.solid_bg, args.bg, args.dry_run)
 
 
 if __name__ == "__main__":
