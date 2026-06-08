@@ -9,7 +9,7 @@ from config import TTS_SPEAKER, TTS_SPEED, TTS_STYLE, TTS_DEVICE
 _model = None
 _model_sr = 44100
 
-HF_REPO = "litagin/Style-Bert-VITS2-2.0-base-JP-Extra"
+HF_REPO = "litagin/style_bert_vits2_jvnv"
 
 AVAILABLE_SPEAKERS = [
     "jvnv-M1-jp",  # 男性1（ニュースナレーター向け）
@@ -17,6 +17,14 @@ AVAILABLE_SPEAKERS = [
     "jvnv-F1-jp",  # 女性1
     "jvnv-F2-jp",  # 女性2
 ]
+
+# 各スピーカーのsafetensorsファイル名（リポジトリの実際のファイル名）
+_SPEAKER_MODEL_FILES = {
+    "jvnv-M1-jp": "jvnv-M1-jp_e158_s14000.safetensors",
+    "jvnv-M2-jp": "jvnv-M2-jp_e159_s17000.safetensors",
+    "jvnv-F1-jp": "jvnv-F1-jp_e160_s14000.safetensors",
+    "jvnv-F2-jp": "jvnv-F2_e166_s20000.safetensors",
+}
 
 
 def _load_model(speaker: str = TTS_SPEAKER):
@@ -36,8 +44,9 @@ def _load_model(speaker: str = TTS_SPEAKER):
             "pip install style-bert-vits2 soundfile huggingface-hub を実行してください。"
         )
 
+    model_filename = _SPEAKER_MODEL_FILES.get(speaker, f"{speaker}_e158_s14000.safetensors")
     print(f"  モデルダウンロード中: {speaker} （初回のみ）...")
-    model_file  = hf_hub_download(HF_REPO, f"{speaker}/{speaker}_e160_s14000.safetensors")
+    model_file  = hf_hub_download(HF_REPO, f"{speaker}/{model_filename}")
     config_file = hf_hub_download(HF_REPO, f"{speaker}/config.json")
     style_file  = hf_hub_download(HF_REPO, f"{speaker}/style_vectors.npy")
 
