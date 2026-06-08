@@ -48,6 +48,7 @@ jobs:
 
       - name: PyTorch（CPU版）をインストール
         run: |
+          pip install "numpy<2.0"
           pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 
       - name: Pythonパッケージをインストール
