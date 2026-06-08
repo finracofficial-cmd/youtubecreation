@@ -51,8 +51,22 @@ def _load_model(speaker: str = TTS_SPEAKER):
     style_file  = hf_hub_download(HF_REPO, f"{speaker}/style_vectors.npy")
 
     import torch
-    # CPUではfloat16非対応のため、SBV2モデルロード前にfloat32を強制
+    # CPUではfloat16非対応のため float32 を強制する。
+    # set_default_dtype はデフォルト型を変えるだけで safetensors ロード済みテンソルには効かないため、
+    # safetensors.torch.load_file をパッチして float16 → float32 変換を強制する。
     torch.set_default_dtype(torch.float32)
+
+    try:
+        import safetensors.torch as _st
+        _orig_load_file = _st.load_file
+        def _fp32_load_file(filename, device="cpu"):
+            sd = _orig_load_file(filename, device=device)
+            return {k: v.to(torch.float32) if v.dtype == torch.float16 else v
+                    for k, v in sd.items()}
+        _st.load_file = _fp32_load_file
+        print("  safetensors float32パッチを適用しました")
+    except Exception as _e:
+        print(f"  警告: safetensorsパッチ失敗（{_e}）、続行します")
 
     print("  日本語BERTモデル読み込み中...")
     bert_models.load_model(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
