@@ -68,12 +68,13 @@ jobs:
           TTS_SPEAKER: ${{ inputs.speaker }}
           TTS_DEVICE: cpu
           SUBTITLE_FONT: Noto Sans CJK JP
+          VIDEO_TOPIC: ${{ inputs.topic }}
         run: |
-          ARGS="--topic \"${{ inputs.topic }}\""
+          ARGS=(--topic "$VIDEO_TOPIC" --output "run_${{ github.run_number }}")
           if [ "${{ inputs.solid_bg }}" = "true" ]; then
-            ARGS="$ARGS --solid-bg"
+            ARGS+=(--solid-bg)
           fi
-          eval python main.py $ARGS
+          python main.py "${ARGS[@]}"
 
       - name: 生成された動画をアップロード
         uses: actions/upload-artifact@v4.6.2

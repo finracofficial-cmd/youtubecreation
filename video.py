@@ -17,7 +17,7 @@ def concat_audio(wav_files: list[str], output_path: str) -> str:
         "ffmpeg", "-y",
         "-f", "concat", "-safe", "0",
         "-i", list_file,
-        "-c", "copy",
+        "-ar", "44100", "-ac", "1",  # 全ファイルを同一フォーマットに正規化
         output_path
     ], check=True, capture_output=True)
     return output_path
@@ -51,10 +51,12 @@ def assemble(background_video: str, audio_file: str, subtitle_file: str,
     """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # 字幕フィルタを設定
+    # 字幕フィルタを設定（FFmpegフィルタグラフ用パスエスケープ）
     abs_sub = str(Path(subtitle_file).resolve())
+    # コロン・バックスラッシュ・シングルクォートをエスケープ
+    esc_sub = abs_sub.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
     if subtitle_file.endswith(".ass"):
-        sub_filter = f"ass={abs_sub}"
+        sub_filter = f"ass={esc_sub}"
     else:
         # SRTはforce_styleでスタイル指定
         from config import (
@@ -72,9 +74,7 @@ def assemble(background_video: str, audio_file: str, subtitle_file: str,
             f"Alignment=2,"
             f"MarginV={SUBTITLE_MARGIN_V}"
         )
-        # パスのコロン・バックスラッシュをエスケープ（Linux不要だが念のため）
-        safe_path = abs_sub.replace("\\", "/").replace(":", "\\:")
-        sub_filter = f"subtitles={safe_path}:force_style='{style}'"
+        sub_filter = f"subtitles={esc_sub}:force_style='{style}'"
 
     subprocess.run([
         "ffmpeg", "-y",

@@ -107,16 +107,9 @@ def save_script(content: str, filename: str | None = None) -> str:
     Path(SCRIPTS_DIR).mkdir(parents=True, exist_ok=True)
 
     if filename is None:
-        # タイトルから自動でファイル名を生成
-        title_match = re.search(r"## title:\s*(.+)", content)
-        if title_match:
-            title = title_match.group(1).strip()
-            # ファイル名に使えない文字を除去
-            safe_title = re.sub(r'[^\w\s\-]', '', title)[:40].strip()
-            filename = safe_title.replace(" ", "_") + ".txt"
-        else:
-            import time
-            filename = f"script_{int(time.time())}.txt"
+        import time
+        # タイムスタンプベースのASCIIファイル名（日本語パスによるFFmpegエラーを回避）
+        filename = f"script_{int(time.time())}.txt"
 
     output_path = Path(SCRIPTS_DIR) / filename
     output_path.write_text(content, encoding="utf-8")

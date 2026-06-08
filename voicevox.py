@@ -50,13 +50,13 @@ def _load_model(speaker: str = TTS_SPEAKER):
     config_file = hf_hub_download(HF_REPO, f"{speaker}/config.json")
     style_file  = hf_hub_download(HF_REPO, f"{speaker}/style_vectors.npy")
 
+    import torch
+    # CPUではfloat16非対応のため、SBV2モデルロード前にfloat32を強制
+    torch.set_default_dtype(torch.float32)
+
     print("  日本語BERTモデル読み込み中...")
     bert_models.load_model(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
     bert_models.load_tokenizer(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
-
-    import torch
-    # CPUではfloat16非対応のため、テンソルのデフォルト型をfloat32に設定
-    torch.set_default_dtype(torch.float32)
 
     _model = TTSModel(
         model_path=model_file,
@@ -130,10 +130,10 @@ def _get_wav_duration(wav_path: str) -> float:
 
 
 def _write_silence(output_path: str, duration: float, sample_rate: int = 44100):
-    """指定秒数の無音WAVを生成する"""
+    """指定秒数の無音WAVを生成する（SBV2出力と同じ mono/44100 形式）"""
     num_frames = int(sample_rate * duration)
     with wave.open(output_path, "w") as wf:
-        wf.setnchannels(1)
+        wf.setnchannels(1)   # SBV2はモノラル出力
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(struct.pack("<" + "h" * num_frames, *([0] * num_frames)))
