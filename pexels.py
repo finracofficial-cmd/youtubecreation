@@ -84,7 +84,7 @@ def fetch_multiple_backgrounds(query: str, output_dir: str, n: int = 8) -> list[
     返り値: ダウンロードした動画ファイルパスのリスト
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-    videos = search_videos(query, per_page=min(n * 2, 30))  # 余裕を持って取得
+    videos = search_videos(query, per_page=min(n + 10, 80))  # 余裕を持って取得（上限80）
     if not videos:
         raise ValueError(f"'{query}' に一致する動画が見つかりませんでした")
 

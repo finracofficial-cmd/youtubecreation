@@ -106,9 +106,10 @@ def assemble(background_video: str, audio_file: str, subtitle_file: str,
 def create_varied_background(video_paths: list[str], output_path: str,
                              total_duration: float, clip_duration: float = 10.0) -> str:
     """
-    複数の背景動画クリップを各最大clip_duration秒にトリムして連結し、
-    total_durationになるまでループした背景動画を生成する。
+    複数の背景動画クリップを各最大clip_duration秒にトリムして連結する。
+    クリップ数が足りない場合のみループで補完する。
     """
+    import math
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     temp_dir = Path(output_path).parent / "_clips"
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -129,25 +130,25 @@ def create_varied_background(video_paths: list[str], output_path: str,
         ])
         trimmed.append(out)
 
-    # 連結リストを作成して1本に
-    concat_path = str(temp_dir / "concat_once.mp4")
+    clips_total = len(trimmed) * clip_duration
+    print(f"  クリップ合計: {len(trimmed)}本 × {clip_duration}秒 = {clips_total:.0f}秒 / 必要: {total_duration:.0f}秒")
+
+    # 連結リストを作成: クリップが足りない場合はリストを繰り返す
+    needed = math.ceil(total_duration / clip_duration)
+    entries = []
+    while len(entries) < needed:
+        entries.extend(trimmed)
+    entries = entries[:needed]
+
     list_file = str(temp_dir / "concat_list.txt")
     with open(list_file, "w") as f:
-        for t in trimmed:
+        for t in entries:
             f.write(f"file '{Path(t).resolve()}'\n")
+
     _run([
         "ffmpeg", "-y",
         "-f", "concat", "-safe", "0",
         "-i", list_file,
-        "-c", "copy",
-        concat_path
-    ])
-
-    # total_durationになるようループ
-    _run([
-        "ffmpeg", "-y",
-        "-stream_loop", "-1",
-        "-i", concat_path,
         "-t", str(total_duration),
         "-c", "copy",
         output_path
