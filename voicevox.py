@@ -5,20 +5,18 @@ import time
 from pathlib import Path
 from config import TTS_SPEAKER, TTS_SPEED, TTS_STYLE, TTS_DEVICE
 
-# グローバルモデルキャッシュ（初回のみダウンロード・ロード）
 _model = None
 _model_sr = 44100
 
 HF_REPO = "litagin/style_bert_vits2_jvnv"
 
 AVAILABLE_SPEAKERS = [
-    "jvnv-M1-jp",  # 男性1（ニュースナレーター向け）
-    "jvnv-M2-jp",  # 男性2
-    "jvnv-F1-jp",  # 女性1
-    "jvnv-F2-jp",  # 女性2
+    "jvnv-M1-jp",
+    "jvnv-M2-jp",
+    "jvnv-F1-jp",
+    "jvnv-F2-jp",
 ]
 
-# 各スピーカーのsafetensorsファイル名（リポジトリの実際のファイル名）
 _SPEAKER_MODEL_FILES = {
     "jvnv-M1-jp": "jvnv-M1-jp_e158_s14000.safetensors",
     "jvnv-M2-jp": "jvnv-M2-jp_e159_s17000.safetensors",
@@ -27,15 +25,57 @@ _SPEAKER_MODEL_FILES = {
 }
 
 
+def _patch_safetensors_fp32():
+    """
+    safetensors.safe_open をラップして float16/bfloat16 テンソルを
+    float32 に変換する。SBV2 インポート前に呼ぶこと。
+    CPUではfloat16演算が未サポートのためこの変換が必要。
+    """
+    import torch
+    import safetensors as _st
+
+    _orig_safe_open = _st.safe_open
+
+    class _FP32SafeOpen:
+        def __init__(self, filename, framework, device="cpu"):
+            self._f = _orig_safe_open(filename, framework=framework, device=device)
+
+        def __enter__(self):
+            self._f.__enter__()
+            return self
+
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            return self._f.__exit__(exc_type, exc_val, exc_tb)
+
+        def keys(self):
+            return self._f.keys()
+
+        def get_tensor(self, key):
+            t = self._f.get_tensor(key)
+            if t.dtype in (torch.float16, torch.bfloat16):
+                return t.to(torch.float32)
+            return t
+
+        def get_slice(self, key):
+            # get_slice は通常使われないが念のため委譲
+            return self._f.get_slice(key)
+
+    _st.safe_open = _FP32SafeOpen
+    print("  safetensors.safe_open float32パッチを適用しました")
+
+
 def _load_model(speaker: str = TTS_SPEAKER):
     global _model, _model_sr
 
     if _model is not None:
         return _model, _model_sr
 
-    # CPU環境ではfloat16非対応のため、SBV2インポート前にfloat32をデフォルト化
     import torch
     torch.set_default_dtype(torch.float32)
+
+    # SBV2インポート前にsafe_openをパッチ（SBV2内部がfloat16モデルを
+    # float32として読み込むようになる）
+    _patch_safetensors_fp32()
 
     try:
         from style_bert_vits2.nlp import bert_models
@@ -65,16 +105,23 @@ def _load_model(speaker: str = TTS_SPEAKER):
         device=TTS_DEVICE,
     )
 
-    # SBV2モデルはlazy load（初回infer時にload）。
-    # 明示的にload()を呼んでnet_gを確保し、CPUのfloat16非対応問題を解消するため
-    # 全パラメータ・バッファをfloat32に変換する。
-    print("  モデルウェイトをロード・float32変換中...")
-    _model.load()
-    if hasattr(_model, 'net_g') and _model.net_g is not None:
-        _model.net_g.float()
-        print("  ✅ net_g を float32 に変換完了")
-    else:
-        print("  ⚠️  net_g 属性が見つかりません（推論時にfloat32エラーが起きる可能性があります）")
+    # 明示的にロードしてネットワーク構造を確保する（可能な場合）
+    print("  モデルウェイトをロード中...")
+    try:
+        _model.load()
+        print("  load() 完了")
+    except Exception as e:
+        print(f"  load() でエラー（infer時に自動ロードされます）: {e}")
+
+    # net_g またはその他の nn.Module 属性を float32 に変換
+    converted = False
+    for attr_name, obj in vars(_model).items():
+        if isinstance(obj, torch.nn.Module):
+            obj.float()
+            print(f"  ✅ _model.{attr_name} を float32 に変換完了")
+            converted = True
+    if not converted:
+        print(f"  デバッグ: model attrs = {list(vars(_model).keys())}")
 
     print(f"  ✅ TTSモデル準備完了: {speaker}")
     return _model, _model_sr
@@ -85,10 +132,6 @@ def synthesize(text: str, output_path: str,
                speed: float = TTS_SPEED,
                style: str = TTS_STYLE,
                **_kwargs) -> float:
-    """
-    テキストをStyle-BERT-VITS2で音声合成してWAVファイルに保存する。
-    返り値: 生成された音声の長さ（秒）
-    """
     import soundfile as sf
     import torch
 
@@ -103,17 +146,18 @@ def synthesize(text: str, output_path: str,
     except RuntimeError as e:
         err_str = str(e)
         if "Half" in err_str or "should be the same" in err_str or "dtype" in err_str.lower():
-            # float16/float32混在エラーをここでも拾う（フォールバック）
-            print(f"  float dtype エラー検出、net_g を float32 に変換して再試行: {e}")
-            if hasattr(model, 'net_g') and model.net_g is not None:
-                model.net_g.float()
+            # フォールバック: infer後にロードされたnet_gをfloat32に変換して再試行
+            print(f"  float dtype エラー。全nn.Moduleをfloat32に変換して再試行...")
+            for attr_name, obj in vars(model).items():
+                if isinstance(obj, torch.nn.Module):
+                    obj.float()
+                    print(f"  ✅ {attr_name}.float() 完了")
             sr, audio = model.infer(text=text, style=style, length=1.0 / speed)
         else:
             raise
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     sf.write(output_path, audio, sr, subtype="PCM_16")
-
     return _get_wav_duration(output_path)
 
 
@@ -121,10 +165,6 @@ def synthesize_batch(lines: list[str], output_dir: str,
                      speaker: str = TTS_SPEAKER,
                      speed: float = TTS_SPEED,
                      **_kwargs) -> list[tuple[str, float]]:
-    """
-    複数行のテキストを一括音声合成する。
-    返り値: [(wavファイルパス, 秒数), ...]
-    """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     _load_model(speaker)
 
@@ -151,7 +191,6 @@ def _get_wav_duration(wav_path: str) -> float:
 
 
 def _write_silence(output_path: str, duration: float, sample_rate: int = 44100):
-    """指定秒数の無音WAVを生成する（SBV2出力と同じ mono/44100 形式）"""
     num_frames = int(sample_rate * duration)
     with wave.open(output_path, "w") as wf:
         wf.setnchannels(1)
