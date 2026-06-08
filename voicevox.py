@@ -33,6 +33,10 @@ def _load_model(speaker: str = TTS_SPEAKER):
     if _model is not None:
         return _model, _model_sr
 
+    # CPU環境ではfloat16非対応のため、SBV2インポート前にfloat32をデフォルト化
+    import torch
+    torch.set_default_dtype(torch.float32)
+
     try:
         from style_bert_vits2.nlp import bert_models
         from style_bert_vits2.constants import Languages
@@ -50,24 +54,6 @@ def _load_model(speaker: str = TTS_SPEAKER):
     config_file = hf_hub_download(HF_REPO, f"{speaker}/config.json")
     style_file  = hf_hub_download(HF_REPO, f"{speaker}/style_vectors.npy")
 
-    import torch
-    # CPUではfloat16非対応のため float32 を強制する。
-    # set_default_dtype はデフォルト型を変えるだけで safetensors ロード済みテンソルには効かないため、
-    # safetensors.torch.load_file をパッチして float16 → float32 変換を強制する。
-    torch.set_default_dtype(torch.float32)
-
-    try:
-        import safetensors.torch as _st
-        _orig_load_file = _st.load_file
-        def _fp32_load_file(filename, device="cpu"):
-            sd = _orig_load_file(filename, device=device)
-            return {k: v.to(torch.float32) if v.dtype == torch.float16 else v
-                    for k, v in sd.items()}
-        _st.load_file = _fp32_load_file
-        print("  safetensors float32パッチを適用しました")
-    except Exception as _e:
-        print(f"  警告: safetensorsパッチ失敗（{_e}）、続行します")
-
     print("  日本語BERTモデル読み込み中...")
     bert_models.load_model(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
     bert_models.load_tokenizer(Languages.JP, "ku-nlp/deberta-v2-large-japanese-char-wwm")
@@ -78,6 +64,18 @@ def _load_model(speaker: str = TTS_SPEAKER):
         style_vec_path=style_file,
         device=TTS_DEVICE,
     )
+
+    # SBV2モデルはlazy load（初回infer時にload）。
+    # 明示的にload()を呼んでnet_gを確保し、CPUのfloat16非対応問題を解消するため
+    # 全パラメータ・バッファをfloat32に変換する。
+    print("  モデルウェイトをロード・float32変換中...")
+    _model.load()
+    if hasattr(_model, 'net_g') and _model.net_g is not None:
+        _model.net_g.float()
+        print("  ✅ net_g を float32 に変換完了")
+    else:
+        print("  ⚠️  net_g 属性が見つかりません（推論時にfloat32エラーが起きる可能性があります）")
+
     print(f"  ✅ TTSモデル準備完了: {speaker}")
     return _model, _model_sr
 
@@ -90,16 +88,28 @@ def synthesize(text: str, output_path: str,
     """
     テキストをStyle-BERT-VITS2で音声合成してWAVファイルに保存する。
     返り値: 生成された音声の長さ（秒）
-    voicevox.synthesize() と同じインターフェース。
     """
     import soundfile as sf
+    import torch
 
     model, _ = _load_model(speaker)
-    sr, audio = model.infer(
-        text=text,
-        style=style,
-        length=1.0 / speed,   # length が大きいほど遅くなる
-    )
+
+    try:
+        sr, audio = model.infer(
+            text=text,
+            style=style,
+            length=1.0 / speed,
+        )
+    except RuntimeError as e:
+        err_str = str(e)
+        if "Half" in err_str or "should be the same" in err_str or "dtype" in err_str.lower():
+            # float16/float32混在エラーをここでも拾う（フォールバック）
+            print(f"  float dtype エラー検出、net_g を float32 に変換して再試行: {e}")
+            if hasattr(model, 'net_g') and model.net_g is not None:
+                model.net_g.float()
+            sr, audio = model.infer(text=text, style=style, length=1.0 / speed)
+        else:
+            raise
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     sf.write(output_path, audio, sr, subtype="PCM_16")
@@ -114,11 +124,8 @@ def synthesize_batch(lines: list[str], output_dir: str,
     """
     複数行のテキストを一括音声合成する。
     返り値: [(wavファイルパス, 秒数), ...]
-    voicevox.synthesize_batch() と同じインターフェース。
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-    # モデルを事前にロード（進捗表示のため）
     _load_model(speaker)
 
     results = []
@@ -147,7 +154,7 @@ def _write_silence(output_path: str, duration: float, sample_rate: int = 44100):
     """指定秒数の無音WAVを生成する（SBV2出力と同じ mono/44100 形式）"""
     num_frames = int(sample_rate * duration)
     with wave.open(output_path, "w") as wf:
-        wf.setnchannels(1)   # SBV2はモノラル出力
+        wf.setnchannels(1)
         wf.setsampwidth(2)
         wf.setframerate(sample_rate)
         wf.writeframes(struct.pack("<" + "h" * num_frames, *([0] * num_frames)))

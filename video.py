@@ -4,6 +4,18 @@ from pathlib import Path
 from config import VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS
 
 
+def _run(cmd: list[str]) -> None:
+    """FFmpegコマンドを実行し、失敗時はstderrを含めてエラーを出す"""
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0:
+        stderr = result.stderr.decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"FFmpeg 失敗 (exit {result.returncode}):\n"
+            f"  コマンド: {' '.join(cmd)}\n"
+            f"  stderr: {stderr[-2000:]}"  # 末尾2000文字
+        )
+
+
 def concat_audio(wav_files: list[str], output_path: str) -> str:
     """複数のWAVファイルを連結して1つのWAVにする"""
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -13,13 +25,13 @@ def concat_audio(wav_files: list[str], output_path: str) -> str:
             abs_path = str(Path(wav).resolve())
             f.write(f"file '{abs_path}'\n")
 
-    subprocess.run([
+    _run([
         "ffmpeg", "-y",
         "-f", "concat", "-safe", "0",
         "-i", list_file,
         "-ar", "44100", "-ac", "1",  # 全ファイルを同一フォーマットに正規化
         output_path
-    ], check=True, capture_output=True)
+    ])
     return output_path
 
 
@@ -29,7 +41,7 @@ def loop_video_to_duration(input_video: str, output_path: str, duration: float) 
     動画が短い場合は繰り返し、長い場合はカットする。
     """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run([
+    _run([
         "ffmpeg", "-y",
         "-stream_loop", "-1",
         "-i", input_video,
@@ -39,7 +51,7 @@ def loop_video_to_duration(input_video: str, output_path: str, duration: float) 
         "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
         "-an",
         output_path
-    ], check=True, capture_output=True)
+    ])
     return output_path
 
 
@@ -47,7 +59,7 @@ def assemble(background_video: str, audio_file: str, subtitle_file: str,
              output_path: str, duration: float) -> str:
     """
     背景動画 + 音声 + 字幕を合成して最終MP4を生成する。
-    subtitle_file: .srt または .ass ファイルパス
+    subtitle_file: .ass ファイルパス
     """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
@@ -55,10 +67,10 @@ def assemble(background_video: str, audio_file: str, subtitle_file: str,
     abs_sub = str(Path(subtitle_file).resolve())
     # コロン・バックスラッシュ・シングルクォートをエスケープ
     esc_sub = abs_sub.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
     if subtitle_file.endswith(".ass"):
         sub_filter = f"ass={esc_sub}"
     else:
-        # SRTはforce_styleでスタイル指定
         from config import (
             SUBTITLE_FONT, SUBTITLE_FONT_SIZE, SUBTITLE_MARGIN_V,
             SUBTITLE_OUTLINE
@@ -76,7 +88,7 @@ def assemble(background_video: str, audio_file: str, subtitle_file: str,
         )
         sub_filter = f"subtitles={esc_sub}:force_style='{style}'"
 
-    subprocess.run([
+    _run([
         "ffmpeg", "-y",
         "-i", background_video,
         "-i", audio_file,
@@ -87,7 +99,7 @@ def assemble(background_video: str, audio_file: str, subtitle_file: str,
         "-pix_fmt", "yuv420p",
         "-movflags", "+faststart",
         output_path
-    ], check=True, capture_output=True)
+    ])
     return output_path
 
 

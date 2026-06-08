@@ -110,6 +110,8 @@ def save_script(content: str, filename: str | None = None) -> str:
         import time
         # タイムスタンプベースのASCIIファイル名（日本語パスによるFFmpegエラーを回避）
         filename = f"script_{int(time.time())}.txt"
+    elif not filename.endswith(".txt"):
+        filename = filename + ".txt"
 
     output_path = Path(SCRIPTS_DIR) / filename
     output_path.write_text(content, encoding="utf-8")
