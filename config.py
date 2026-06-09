@@ -17,9 +17,8 @@ TTS_DEVICE  = os.getenv("TTS_DEVICE", "cpu")
 # Pexels API
 PEXELS_API_KEY = os.getenv("PEXELS_API_KEY", "")
 
-# Google Custom Search API（画像検索）
-GOOGLE_CSE_API_KEY = os.getenv("GOOGLE_CSE_API_KEY", "")
-GOOGLE_CSE_ID      = os.getenv("GOOGLE_CSE_ID", "")
+# Serper.dev（Google画像検索）
+SERPER_API_KEY = os.getenv("SERPER_API_KEY", "")
 
 # 動画設定
 VIDEO_WIDTH = int(os.getenv("VIDEO_WIDTH", "1920"))

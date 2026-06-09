@@ -109,7 +109,8 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-TTS_ENGINE_URL: http://localhost:10101
+          SERPER_API_KEY: ${{ secrets.SERPER_API_KEY }}
+          TTS_ENGINE_URL: http://localhost:10101
           TTS_SPEAKER_NAME: 阿井田 茂
           TTS_STYLE_NAME: Calm
           SUBTITLE_FONT: Noto Sans CJK JP

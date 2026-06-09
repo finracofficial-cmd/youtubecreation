@@ -1,12 +1,13 @@
-"""Wikipedia APIを使った画像取得モジュール（APIキー不要）"""
+"""Serper.dev (Google画像検索) APIを使った画像取得モジュール"""
 import requests
 import anthropic
 import os
 from pathlib import Path
+from config import SERPER_API_KEY
 
 
 def extract_search_queries(script_text: str, n: int = 10) -> list[str]:
-    """台本テキストからClaudeが人名・地名・装備名を抽出する（日英両方）。"""
+    """台本テキストからClaudeが画像検索クエリ（人名・地名・装備名）を抽出する。"""
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
     excerpt = script_text[:3000]
     response = client.messages.create(
@@ -15,70 +16,49 @@ def extract_search_queries(script_text: str, n: int = 10) -> list[str]:
         messages=[{
             "role": "user",
             "content": (
-                f"以下の台本から、Wikipediaで画像を検索するのに適したキーワードを{n}個抽出してください。\n"
-                "人名・地名・軍事装備・組織名など固有名詞を優先してください。\n"
-                "各キーワードを「日本語|英語」の形式で1行に1つ出力してください。\n"
-                "例: 小泉進次郎|Shinjiro Koizumi\n"
-                "例: F-35戦闘機|F-35 Lightning II\n"
-                "説明不要。\n\n"
+                f"以下の台本から、Google画像検索するのに適したキーワードを{n}個抽出してください。\n"
+                "人名・地名・軍事装備・政治的事件など具体的な固有名詞を優先してください。\n"
+                "1行に1つ、日本語で出力してください。説明不要。\n\n"
                 + excerpt
             )
         }]
     )
-    pairs = []
-    for line in response.content[0].text.strip().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if "|" in line:
-            ja, en = line.split("|", 1)
-            pairs.append((ja.strip(), en.strip()))
-        else:
-            pairs.append((line, line))
-    print(f"  画像検索クエリ: {[p[0] for p in pairs]}")
-    return pairs[:n]
+    queries = [line.strip() for line in response.content[0].text.strip().splitlines() if line.strip()]
+    print(f"  画像検索クエリ: {queries}")
+    return queries[:n]
 
 
-def get_wikipedia_image(query: str, lang: str = "ja") -> str | None:
+def search_images(query: str, n: int = 3) -> list[str]:
     """
-    Wikipedia記事のメイン画像URLを取得する。
-    見つからない場合はNoneを返す。
+    Serper.dev の Google画像検索エンドポイントで画像URLを取得する。
+    返り値: 画像URLのリスト
     """
+    if not SERPER_API_KEY:
+        return []
     try:
-        # まず記事を検索
-        r = requests.get(
-            f"https://{lang}.wikipedia.org/w/api.php",
-            params={
-                "action": "query",
-                "generator": "search",
-                "gsrsearch": query,
-                "gsrlimit": 3,
-                "prop": "pageimages",
-                "piprop": "original|thumbnail",
-                "pithumbsize": 1280,
-                "format": "json",
+        r = requests.post(
+            "https://google.serper.dev/images",
+            headers={
+                "X-API-KEY": SERPER_API_KEY,
+                "Content-Type": "application/json",
             },
-            headers={"User-Agent": "YouTubeCreationBot/1.0"},
-            timeout=15
+            json={"q": query, "gl": "jp", "hl": "ja", "num": n * 2},
+            timeout=15,
         )
         r.raise_for_status()
-        pages = r.json().get("query", {}).get("pages", {})
-        for page in pages.values():
-            original = page.get("original", {}).get("source")
-            thumbnail = page.get("thumbnail", {}).get("source")
-            url = original or thumbnail
-            if url and not url.endswith(".svg"):
-                return url
+        images = r.json().get("images", [])
+        urls = [img["imageUrl"] for img in images if img.get("imageUrl")]
+        return urls[:n]
     except Exception as e:
-        print(f"  Wikipedia検索失敗 ({lang}:{query}): {e}")
-    return None
+        print(f"  画像検索失敗 ({query}): {e}")
+        return []
 
 
 def download_image(url: str, output_path: str) -> bool:
     """画像をダウンロードする。成功したらTrue。"""
     try:
         r = requests.get(url, stream=True, timeout=30,
-                         headers={"User-Agent": "YouTubeCreationBot/1.0"})
+                         headers={"User-Agent": "Mozilla/5.0"})
         r.raise_for_status()
         content_type = r.headers.get("content-type", "")
         if "image" not in content_type:
@@ -86,6 +66,10 @@ def download_image(url: str, output_path: str) -> bool:
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=65536):
                 f.write(chunk)
+        # 極端に小さい画像（アイコン等）を除外
+        if Path(output_path).stat().st_size < 5000:
+            Path(output_path).unlink(missing_ok=True)
+            return False
         return True
     except Exception:
         return False
@@ -94,29 +78,27 @@ def download_image(url: str, output_path: str) -> bool:
 def fetch_script_images(script_text: str, output_dir: str,
                         n_queries: int = 10, n_per_query: int = 2) -> list[str]:
     """
-    台本から人名・地名を抽出し、Wikipedia記事のメイン画像をダウンロードする。
-    日本語Wikipediaで見つからなければ英語Wikipediaにフォールバック。
+    台本から画像検索クエリを抽出して、Google画像検索で関連画像をダウンロードする。
+    返り値: ダウンロードした画像ファイルパスのリスト
     """
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    query_pairs = extract_search_queries(script_text, n=n_queries)
+    queries = extract_search_queries(script_text, n=n_queries)
     downloaded = []
 
-    for qi, (ja_query, en_query) in enumerate(query_pairs):
-        # 日本語Wikipedia → 英語Wikipediaの順で試す
-        url = get_wikipedia_image(ja_query, lang="ja")
-        if not url and en_query != ja_query:
-            url = get_wikipedia_image(en_query, lang="en")
-
-        if url:
-            out_path = str(Path(output_dir) / f"img_{qi:02d}.jpg")
+    for qi, query in enumerate(queries):
+        urls = search_images(query, n=n_per_query)
+        got = 0
+        for ui, url in enumerate(urls):
+            if got >= n_per_query:
+                break
+            out_path = str(Path(output_dir) / f"img_{qi:02d}_{ui:02d}.jpg")
             if download_image(url, out_path):
                 downloaded.append(out_path)
-                print(f"  ✅ [{len(downloaded)}] {ja_query} → ダウンロード完了")
+                got += 1
+                print(f"  ✅ [{len(downloaded)}] {query} → ダウンロード完了")
             else:
-                print(f"  スキップ (DL失敗): {ja_query}")
-        else:
-            print(f"  スキップ (画像なし): {ja_query}")
+                print(f"  スキップ: {query} ({url[:60]}...)")
 
     print(f"  台本関連画像: 計{len(downloaded)}枚取得")
     return downloaded
