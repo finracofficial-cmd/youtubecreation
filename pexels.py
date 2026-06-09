@@ -109,6 +109,54 @@ def fetch_multiple_backgrounds(query: str, output_dir: str, n: int = 8) -> list[
     return downloaded
 
 
+def search_photos(query: str, per_page: int = 10) -> list[dict]:
+    """キーワードで写真を検索する"""
+    if not PEXELS_API_KEY:
+        raise ValueError("PEXELS_API_KEY が設定されていません")
+    r = requests.get(
+        "https://api.pexels.com/v1/search",
+        headers={"Authorization": PEXELS_API_KEY},
+        params={"query": query, "orientation": "landscape", "per_page": per_page},
+        timeout=15
+    )
+    r.raise_for_status()
+    return r.json().get("photos", [])
+
+
+def fetch_images(query: str, output_dir: str, n: int = 5) -> list[str]:
+    """
+    キーワードで写真を検索してダウンロードする。
+    返り値: ダウンロードした画像ファイルパスのリスト
+    """
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    photos = search_photos(query, per_page=min(n + 5, 30))
+    if not photos:
+        return []
+
+    random.shuffle(photos)
+    downloaded = []
+    for i, photo in enumerate(photos):
+        if len(downloaded) >= n:
+            break
+        url = photo.get("src", {}).get("large2x") or photo.get("src", {}).get("original")
+        if not url:
+            continue
+        ext = "jpg"
+        out_path = str(Path(output_dir) / f"photo_{i:02d}.{ext}")
+        try:
+            r = requests.get(url, stream=True, timeout=60)
+            r.raise_for_status()
+            with open(out_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=65536):
+                    f.write(chunk)
+            downloaded.append(out_path)
+            print(f"  [画像 {len(downloaded)}/{n}] Pexels ID={photo['id']} ダウンロード完了")
+        except Exception as e:
+            print(f"  スキップ（画像DL失敗: {e}）")
+
+    return downloaded
+
+
 def generate_solid_background(output_path: str, duration: float,
                                color: str = "black",
                                width: int = 1920, height: int = 1080,

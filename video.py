@@ -161,6 +161,118 @@ def create_varied_background(video_paths: list[str], output_path: str,
     return output_path
 
 
+def image_to_clip(image_path: str, output_path: str, duration: float = 5.0) -> str:
+    """
+    静止画にランダムなケン・バーンズ効果（ズーム・パン）をかけて動画クリップにする。
+    """
+    import random
+    d = int(duration * VIDEO_FPS)  # フレーム数
+    w, h = VIDEO_WIDTH, VIDEO_HEIGHT
+
+    # ランダムにアニメスタイルを選ぶ
+    style = random.choice([
+        # ゆっくりズームイン
+        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+        # ゆっくりズームアウト
+        f"zoompan=z='if(lte(zoom,1.0),1.5,max(1.001,zoom-0.0015))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+        # 左から右へパン
+        f"zoompan=z=1.2:x='iw/2-(iw/zoom/2)+((iw-(iw/zoom))/2)*on/{d}':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+        # 右から左へパン
+        f"zoompan=z=1.2:x='iw/2-(iw/zoom/2)+((iw-(iw/zoom))/2)*(1-on/{d})':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+    ])
+
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    _run([
+        "ffmpeg", "-y",
+        "-loop", "1", "-i", image_path,
+        "-vf", style,
+        "-t", str(duration),
+        "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+        "-an",
+        output_path
+    ])
+    return output_path
+
+
+def create_mixed_background(video_paths: list[str], image_paths: list[str],
+                             output_path: str, total_duration: float,
+                             clip_duration: float = 10.0,
+                             image_clip_duration: float = 5.0) -> str:
+    """
+    背景動画クリップと画像アニメクリップをランダムに交互配置して連結する。
+    """
+    import math
+    import random
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+    temp_dir = Path(output_path).parent / "_clips"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    # 動画クリップをトリム＆スケール
+    trimmed_videos = []
+    for i, vp in enumerate(video_paths):
+        out = str(temp_dir / f"vid_{i:02d}.mp4")
+        _run([
+            "ffmpeg", "-y", "-i", vp,
+            "-t", str(clip_duration),
+            "-vf", f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}",
+            "-r", str(VIDEO_FPS),
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-an",
+            out
+        ])
+        trimmed_videos.append(out)
+
+    # 画像クリップをアニメ化
+    animated_images = []
+    for i, ip in enumerate(image_paths):
+        out = str(temp_dir / f"img_{i:02d}.mp4")
+        try:
+            image_to_clip(ip, out, duration=image_clip_duration)
+            animated_images.append(out)
+            print(f"  画像アニメ [{i+1}/{len(image_paths)}] 完了")
+        except Exception as e:
+            print(f"  画像アニメ スキップ: {e}")
+
+    # 動画と画像クリップをシャッフルして交互に配置
+    random.shuffle(trimmed_videos)
+    random.shuffle(animated_images)
+
+    # 交互配置: video, image, video, image, ...
+    all_clips = []
+    vi, ii = 0, 0
+    while vi < len(trimmed_videos) or ii < len(animated_images):
+        if vi < len(trimmed_videos):
+            all_clips.append(trimmed_videos[vi]); vi += 1
+        if ii < len(animated_images):
+            all_clips.append(animated_images[ii]); ii += 1
+
+    if not all_clips:
+        raise ValueError("クリップが1本もありません")
+
+    # 必要な秒数になるまでリストを繰り返す
+    needed = math.ceil(total_duration / min(clip_duration, image_clip_duration))
+    entries = []
+    while len(entries) < needed:
+        pool = all_clips[:]
+        random.shuffle(pool)
+        entries.extend(pool)
+    entries = entries[:needed * 2]  # 余裕を持って用意
+
+    list_file = str(temp_dir / "mixed_list.txt")
+    with open(list_file, "w") as f:
+        for t in entries:
+            f.write(f"file '{Path(t).resolve()}'\n")
+
+    _run([
+        "ffmpeg", "-y",
+        "-f", "concat", "-safe", "0",
+        "-i", list_file,
+        "-t", str(total_duration),
+        "-c", "copy",
+        output_path
+    ])
+    return output_path
+
+
 def get_video_duration(video_path: str) -> float:
     """動画の長さを取得する"""
     result = subprocess.run([

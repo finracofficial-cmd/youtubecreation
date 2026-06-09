@@ -138,13 +138,25 @@ def run_pipeline(script_path: str, output_name: str | None = None,
     else:
         import math
         clip_sec = 10.0
-        # 必要なクリップ数を計算（Pexels上限80本）
-        n_clips = min(math.ceil(total_duration / clip_sec), 80)
+        image_sec = 5.0
+        # 動画クリップ: 全体の2/3、画像クリップ: 1/3 を目安に本数計算
+        n_video = min(math.ceil(total_duration / clip_sec * 2 / 3), 40)
+        n_image = min(math.ceil(total_duration / image_sec * 1 / 3), 20)
+
         clips_dir = str(temp_dir / "bg_clips")
-        print(f"  背景クリップを{n_clips}本ダウンロード中（各{clip_sec:.0f}秒）...")
-        clip_paths = pexels.fetch_multiple_backgrounds(bg_query, clips_dir, n=n_clips)
-        print(f"  {len(clip_paths)}本取得。連結中（合計{total_duration:.1f}秒）...")
-        vid.create_varied_background(clip_paths, looped_bg_path, total_duration, clip_duration=clip_sec)
+        images_dir = str(temp_dir / "bg_images")
+
+        print(f"  背景動画クリップを{n_video}本ダウンロード中...")
+        clip_paths = pexels.fetch_multiple_backgrounds(bg_query, clips_dir, n=n_video)
+
+        print(f"  関連画像を{n_image}枚ダウンロード中...")
+        image_paths = pexels.fetch_images(bg_query, images_dir, n=n_image)
+
+        print(f"  動画{len(clip_paths)}本＋画像{len(image_paths)}枚を混合中（合計{total_duration:.1f}秒）...")
+        vid.create_mixed_background(
+            clip_paths, image_paths, looped_bg_path, total_duration,
+            clip_duration=clip_sec, image_clip_duration=image_sec
+        )
 
     # ── Step 5: 最終合成 ──────────────────────────────────────────
     print("\n=== Step 5: 動画合成（背景＋音声＋字幕） ===")
