@@ -128,18 +128,13 @@ def run_pipeline(script_path: str, output_name: str | None = None,
         print(f"  背景動画クリップを{n_video}本ダウンロード中...")
         clip_paths = pexels.fetch_multiple_backgrounds(bg_query, clips_dir, n=n_video)
 
-        # 台本内容から関連画像をGoogle CSEで検索
-        from config import GOOGLE_CSE_API_KEY, GOOGLE_CSE_ID
-        if GOOGLE_CSE_API_KEY and GOOGLE_CSE_ID:
-            from image_search import fetch_script_images
-            print(f"  台本関連画像をGoogle画像検索で取得中...")
-            image_paths = fetch_script_images(
-                script_path.read_text(encoding="utf-8"),
-                images_dir, n_queries=8, n_per_query=2
-            )
-        else:
-            print(f"  Google CSE未設定 → Pexels写真で代替")
-            image_paths = pexels.fetch_images(bg_query, images_dir, n=n_image)
+        # 台本内容からWikimedia Commons画像を検索（APIキー不要）
+        from image_search import fetch_script_images
+        print(f"  台本関連画像をWikimedia Commonsで取得中...")
+        image_paths = fetch_script_images(
+            script_path.read_text(encoding="utf-8"),
+            images_dir, n_queries=8, n_per_query=2
+        )
 
         print(f"  動画{len(clip_paths)}本＋画像{len(image_paths)}枚を混合中（合計{total_duration:.1f}秒）...")
         vid.create_mixed_background(
