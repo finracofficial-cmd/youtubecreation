@@ -32,27 +32,6 @@ from config import (
 )
 
 
-def _suggest_bg_query(script_text: str) -> str:
-    """台本テキストからPexels検索用の英語キーワードをClaudeに生成させる"""
-    import anthropic
-    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-    # 長すぎる場合は先頭1500文字だけ渡す
-    excerpt = script_text[:1500]
-    response = client.messages.create(
-        model="claude-haiku-4-5",
-        max_tokens=60,
-        messages=[{
-            "role": "user",
-            "content": (
-                "以下の台本の内容に合う背景映像をPexelsで検索するための英語キーワードを"
-                "3〜5語で1行だけ出力してください。説明や記号は不要です。\n\n" + excerpt
-            )
-        }]
-    )
-    query = response.content[0].text.strip().splitlines()[0]
-    print(f"  背景KW（AI生成）: {query}")
-    return query
-
 
 def run_pipeline(script_path: str, output_name: str | None = None,
                  use_solid_bg: bool = False, bg_query_override: str | None = None,
@@ -79,7 +58,7 @@ def run_pipeline(script_path: str, output_name: str | None = None,
     print(f"\n=== 台本解析: {script_path} ===")
     lines, meta = parse_chapter_script(str(script_path))
     title = meta.get("title", output_name)
-    bg_query = bg_query_override or meta.get("background") or _suggest_bg_query(script_path.read_text(encoding="utf-8"))
+    bg_query = bg_query_override or meta.get("background", "military japan defense")
     nonempty_lines = [l for l in lines if l.strip()]
 
     print(f"  タイトル  : {title}")
@@ -179,82 +158,19 @@ def run_pipeline(script_path: str, output_name: str | None = None,
     return str(final_output)
 
 
-def cmd_generate_and_run(topic: str, context: str, output_name: str | None,
-                         use_solid_bg: bool, bg_query_override: str | None,
-                         speaker_id: str | None):
-    """台本生成→動画生成まで全自動実行"""
-    from generate_script import generate, save_script
-
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("❌ ANTHROPIC_API_KEY が設定されていません（.envに追加してください）")
-        sys.exit(1)
-
-    print(f"\n=== 台本生成: '{topic}' ===")
-    script_text = generate(topic, context)
-    script_path = save_script(script_text, output_name)
-    print(f"  → 台本保存: {script_path}")
-    print(f"  → 文字数: {len(script_text):,}")
-
-    run_pipeline(script_path, output_name, use_solid_bg, bg_query_override,
-                 speaker_id=speaker_id)
-
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="YouTube動画自動生成パイプライン（軍事系ニュース解説スタイル）",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-使い方:
-  # ① スピーカーを対話選択して.envに保存（まず最初に実行）
-  python main.py --select-speaker
-
-  # ② テーマから全自動生成（台本→音声→動画）
-  python main.py --topic "中国の空母戦力と日本の対応策"
-
-  # ③ 既存台本から動画生成
-  python main.py scripts/sample_military.txt
-
-  # スピーカーをその場で指定（IDまたは名前）
-  python main.py scripts/sample_military.txt --speaker 11
-  python main.py --topic "イージス艦" --speaker ずんだもん
-
-  # 台本のみ生成
-  python generate_script.py "イージス艦の迎撃能力"
-
-  # テスト（黒背景・dry-run）
-  python main.py scripts/sample_military.txt --solid-bg --dry-run
-
-  # スピーカー一覧
-  python main.py --list-speakers
-  python speaker.py --list
-        """
-    )
-
-    # モード選択
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument("script", nargs="?", help="既存の台本ファイルパス")
-    group.add_argument("--topic", metavar="TOPIC",
-                       help="動画テーマ（Claude APIで台本を自動生成）")
-    # オプション
+    parser = argparse.ArgumentParser(description="YouTube動画自動生成パイプライン")
+    parser.add_argument("script", nargs="?", help="台本ファイルパス")
     parser.add_argument("-o", "--output", help="出力ファイル名（拡張子なし）")
-    parser.add_argument("--context", default="",
-                        help="台本生成の追加コンテキスト（--topicと併用）")
-    parser.add_argument("--solid-bg", action="store_true",
-                        help="Pexels不使用・黒背景（テスト用）")
-    parser.add_argument("--bg", metavar="KEYWORD",
-                        help="Pexels検索キーワード上書き（英語）")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="台本解析のみ（音声・動画生成をスキップ）")
+    parser.add_argument("--solid-bg", action="store_true", help="黒背景（テスト用）")
+    parser.add_argument("--bg", metavar="KEYWORD", help="Pexels検索キーワード上書き")
+    parser.add_argument("--dry-run", action="store_true", help="台本解析のみ")
 
     args = parser.parse_args()
 
     # ── メインパイプライン ────────────────────────────────────────
-    if args.topic:
-        cmd_generate_and_run(
-            args.topic, args.context, args.output,
-            args.solid_bg, args.bg, None
-        )
-    elif args.script:
+    if args.script:
         run_pipeline(args.script, args.output, args.solid_bg, args.bg,
                      args.dry_run, None)
     else:
