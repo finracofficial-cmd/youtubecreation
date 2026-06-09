@@ -61,15 +61,19 @@ jobs:
             -p 10101:10101 \
             -v ~/.local/share/AivisSpeech-Engine:/home/user/.local/share/AivisSpeech-Engine-Dev \
             ghcr.io/aivis-project/aivisspeech-engine:cpu-latest
-          echo "エンジン起動待ち..."
-          for i in $(seq 1 60); do
+          echo "エンジン起動待ち（最大10分）..."
+          for i in $(seq 1 120); do
             if curl -sf http://localhost:10101/speakers > /dev/null 2>&1; then
-              echo "✅ AivisSpeech Engine 起動完了"
-              break
+              echo "✅ AivisSpeech Engine 起動完了 (${i}回目)"
+              curl -s http://localhost:10101/speakers | python3 -c "import json,sys; speakers=json.load(sys.stdin); [print(f'  話者: {s[\"name\"]}') for s in speakers]"
+              exit 0
             fi
-            echo "  待機中... ($i/60)"
+            echo "  待機中... ($i/120)"
             sleep 5
           done
+          echo "❌ AivisSpeech Engine が起動しませんでした"
+          docker logs aivisspeech
+          exit 1
 
       - name: GistからスクリプトをDL
         run: |
