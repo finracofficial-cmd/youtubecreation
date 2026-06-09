@@ -169,16 +169,24 @@ def image_to_clip(image_path: str, output_path: str, duration: float = 5.0) -> s
     d = int(duration * VIDEO_FPS)  # フレーム数
     w, h = VIDEO_WIDTH, VIDEO_HEIGHT
 
+    # 事前に出力の2倍解像度へ拡大＆クロップ。
+    #  - 低解像度画像でも滑らかにズーム/パンできる（ジッター防止）
+    #  - 出力アスペクト比にぴったり合わせて余白が出ない
+    pre = (
+        f"scale={w*2}:{h*2}:force_original_aspect_ratio=increase:flags=lanczos,"
+        f"crop={w*2}:{h*2},setsar=1"
+    )
+
     # ランダムにアニメスタイルを選ぶ
     style = random.choice([
         # ゆっくりズームイン
-        f"zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+        f"{pre},zoompan=z='min(zoom+0.0015,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
         # ゆっくりズームアウト
-        f"zoompan=z='if(lte(zoom,1.0),1.5,max(1.001,zoom-0.0015))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+        f"{pre},zoompan=z='if(lte(zoom,1.0),1.5,max(1.001,zoom-0.0015))':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
         # 左から右へパン
-        f"zoompan=z=1.2:x='iw/2-(iw/zoom/2)+((iw-(iw/zoom))/2)*on/{d}':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+        f"{pre},zoompan=z=1.2:x='iw/2-(iw/zoom/2)+((iw-(iw/zoom))/2)*on/{d}':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
         # 右から左へパン
-        f"zoompan=z=1.2:x='iw/2-(iw/zoom/2)+((iw-(iw/zoom))/2)*(1-on/{d})':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
+        f"{pre},zoompan=z=1.2:x='iw/2-(iw/zoom/2)+((iw-(iw/zoom))/2)*(1-on/{d})':y='ih/2-(ih/zoom/2)':d={d}:s={w}x{h}:fps={VIDEO_FPS}",
     ])
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)

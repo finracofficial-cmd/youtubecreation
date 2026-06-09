@@ -28,10 +28,16 @@ def extract_search_queries(script_text: str, n: int = 10) -> list[str]:
     return queries[:n]
 
 
+# 動画背景に耐える最低解像度（横幅・縦幅）
+MIN_IMAGE_WIDTH = 800
+MIN_IMAGE_HEIGHT = 600
+
+
 def search_images(query: str, n: int = 3) -> list[str]:
     """
     Serper.dev の Google画像検索エンドポイントで画像URLを取得する。
-    返り値: 画像URLのリスト
+    解像度の高い順にソートし、低解像度の画像は除外する。
+    返り値: 画像URLのリスト（高画質順）
     """
     if not SERPER_API_KEY:
         return []
@@ -42,13 +48,35 @@ def search_images(query: str, n: int = 3) -> list[str]:
                 "X-API-KEY": SERPER_API_KEY,
                 "Content-Type": "application/json",
             },
-            json={"q": query, "gl": "jp", "hl": "ja", "num": n * 2},
+            # 多めに取得して解像度でフィルタ・ソートする
+            json={"q": query, "gl": "jp", "hl": "ja", "num": max(n * 5, 20)},
             timeout=15,
         )
         r.raise_for_status()
         images = r.json().get("images", [])
-        urls = [img["imageUrl"] for img in images if img.get("imageUrl")]
-        return urls[:n]
+
+        # 解像度が取得でき、かつ最低基準を満たすものだけ残す
+        candidates = []
+        for img in images:
+            url = img.get("imageUrl")
+            w = img.get("imageWidth", 0) or 0
+            h = img.get("imageHeight", 0) or 0
+            if not url:
+                continue
+            if w >= MIN_IMAGE_WIDTH and h >= MIN_IMAGE_HEIGHT:
+                candidates.append((url, w * h))
+
+        # 解像度（面積）の大きい順にソート
+        candidates.sort(key=lambda x: x[1], reverse=True)
+
+        # 基準を満たすものが少なければ、解像度不明/小さめも補充
+        if len(candidates) < n:
+            for img in images:
+                url = img.get("imageUrl")
+                if url and url not in [c[0] for c in candidates]:
+                    candidates.append((url, 0))
+
+        return [url for url, _ in candidates[:n]]
     except Exception as e:
         print(f"  画像検索失敗 ({query}): {e}")
         return []
@@ -66,12 +94,13 @@ def download_image(url: str, output_path: str) -> bool:
         with open(output_path, "wb") as f:
             for chunk in r.iter_content(chunk_size=65536):
                 f.write(chunk)
-        # 極端に小さい画像（アイコン等）を除外
-        if Path(output_path).stat().st_size < 5000:
+        # 低品質・アイコン・破損画像を除外（高画質背景には30KB以上が目安）
+        if Path(output_path).stat().st_size < 30000:
             Path(output_path).unlink(missing_ok=True)
             return False
         return True
     except Exception:
+        Path(output_path).unlink(missing_ok=True)
         return False
 
 
