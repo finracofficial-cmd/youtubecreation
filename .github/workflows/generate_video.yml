@@ -7,16 +7,6 @@ on:
         description: 'GitHub GistのURL（例: https://gist.github.com/username/abcdef123456）'
         required: true
         type: string
-      speaker:
-        description: 'スピーカー'
-        required: false
-        default: 'jvnv-M1-jp'
-        type: choice
-        options:
-          - jvnv-M1-jp
-          - jvnv-M2-jp
-          - jvnv-F1-jp
-          - jvnv-F2-jp
       solid_bg:
         description: '黒背景を使用（テスト用・高速）'
         required: false
@@ -46,20 +36,40 @@ jobs:
             fonts-noto-cjk \
             fonts-noto-cjk-extra
 
-      - name: PyTorch（CPU版）をインストール
-        run: |
-          pip install "numpy<2.0"
-          pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-
       - name: Pythonパッケージをインストール
         run: pip install -r requirements.txt
 
-      - name: HuggingFaceモデルをキャッシュから復元
+      - name: AivisSpeechモデルをキャッシュから復元
+        id: model-cache
         uses: actions/cache@v4.2.3
         with:
-          path: ~/.cache/huggingface
-          key: hf-sbv2-jp-extra-v1
-          restore-keys: hf-sbv2-jp-extra-
+          path: ~/.local/share/AivisSpeech-Engine/Models
+          key: aivis-model-default-v1
+
+      - name: AivisSpeechモデルをダウンロード（キャッシュミス時）
+        if: steps.model-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.local/share/AivisSpeech-Engine/Models
+          echo "モデルをダウンロード中（251MB）..."
+          curl -L -o ~/.local/share/AivisSpeech-Engine/Models/default.aivmx \
+            https://github.com/finracofficial-cmd/youtubecreation/releases/download/models-v1/default.aivmx
+          echo "✅ ダウンロード完了"
+
+      - name: AivisSpeech Engine を起動
+        run: |
+          docker run -d --name aivisspeech \
+            -p 10101:10101 \
+            -v ~/.local/share/AivisSpeech-Engine:/home/user/.local/share/AivisSpeech-Engine-Dev \
+            ghcr.io/aivis-project/aivisspeech-engine:cpu-latest
+          echo "エンジン起動待ち..."
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:10101/speakers > /dev/null 2>&1; then
+              echo "✅ AivisSpeech Engine 起動完了"
+              break
+            fi
+            echo "  待機中... ($i/60)"
+            sleep 5
+          done
 
       - name: GistからスクリプトをDL
         run: |
@@ -67,7 +77,6 @@ jobs:
           python - <<'EOF'
           import re, urllib.request, json, sys
           url = "${{ inputs.script_url }}"
-          # Gist IDを抽出
           m = re.search(r'gist\.github\.com/[^/]+/([0-9a-f]+)', url)
           if not m:
               print(f"❌ Gist URLが正しくありません: {url}")
@@ -77,7 +86,6 @@ jobs:
           req = urllib.request.Request(api_url, headers={"User-Agent": "Mozilla/5.0"})
           with urllib.request.urlopen(req) as r:
               data = json.load(r)
-          # 最初のファイルを取得
           files = data.get("files", {})
           if not files:
               print("❌ Gistにファイルがありません")
@@ -94,8 +102,9 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          TTS_SPEAKER: ${{ inputs.speaker }}
-          TTS_DEVICE: cpu
+          TTS_ENGINE_URL: http://localhost:10101
+          TTS_SPEAKER_NAME: 阿井田 茂
+          TTS_STYLE_NAME: Calm
           SUBTITLE_FONT: Noto Sans CJK JP
         run: |
           ARGS=(scripts/run_${{ github.run_number }}.txt --output "run_${{ github.run_number }}")

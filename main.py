@@ -28,31 +28,8 @@ import video as vid
 from config import (
     OUTPUT_DIR, TEMP_DIR, SCRIPTS_DIR,
     PEXELS_API_KEY, VIDEO_WIDTH, VIDEO_HEIGHT, VIDEO_FPS,
-    TTS_SPEAKER, TTS_SPEED,
+    TTS_SPEAKER_NAME, TTS_SPEED,
 )
-
-
-SPEAKERS = voicevox.AVAILABLE_SPEAKERS
-
-
-def _resolve_speaker(speaker_arg: str | None) -> str:
-    """
-    --speaker の引数（名前）を解決して返す。
-    Noneの場合は.envのTTS_SPEAKERを使う。
-    """
-    if speaker_arg is None:
-        return TTS_SPEAKER
-
-    # 部分一致で検索
-    query = speaker_arg.lower()
-    for s in SPEAKERS:
-        if query in s.lower():
-            print(f"  スピーカー: {s}")
-            return s
-
-    print(f"❌ スピーカー '{speaker_arg}' が見つかりません")
-    print(f"   利用可能: {', '.join(SPEAKERS)}")
-    sys.exit(1)
 
 
 def _suggest_bg_query(script_text: str) -> str:
@@ -91,7 +68,7 @@ def run_pipeline(script_path: str, output_name: str | None = None,
     if output_name is None:
         output_name = script_path.stem
 
-    effective_speaker = speaker_id if speaker_id is not None else TTS_SPEAKER
+    effective_speaker = speaker_id if speaker_id is not None else TTS_SPEAKER_NAME
 
     temp_dir = Path(TEMP_DIR) / output_name
     temp_dir.mkdir(parents=True, exist_ok=True)
@@ -236,12 +213,7 @@ def main():
     group.add_argument("script", nargs="?", help="既存の台本ファイルパス")
     group.add_argument("--topic", metavar="TOPIC",
                        help="動画テーマ（Claude APIで台本を自動生成）")
-    group.add_argument("--list-speakers", action="store_true",
-                       help="利用可能なスピーカー一覧を表示")
-
     # オプション
-    parser.add_argument("--speaker", metavar="NAME",
-                        help=f"スピーカー名（例: jvnv-M1-jp）。利用可能: {', '.join(voicevox.AVAILABLE_SPEAKERS)}")
     parser.add_argument("-o", "--output", help="出力ファイル名（拡張子なし）")
     parser.add_argument("--context", default="",
                         help="台本生成の追加コンテキスト（--topicと併用）")
@@ -254,27 +226,15 @@ def main():
 
     args = parser.parse_args()
 
-    # ── スピーカー一覧 ────────────────────────────────────────────
-    if args.list_speakers:
-        print("\n利用可能なスピーカー（Style-BERT-VITS2）:\n")
-        for s in voicevox.AVAILABLE_SPEAKERS:
-            marker = " ← 現在" if s == TTS_SPEAKER else ""
-            print(f"  {s}{marker}")
-        print(f"\n変更するには .env の TTS_SPEAKER= を書き換えてください")
-        return
-
-    # ── スピーカーID解決 ─────────────────────────────────────────
-    speaker_id = _resolve_speaker(args.speaker)
-
     # ── メインパイプライン ────────────────────────────────────────
     if args.topic:
         cmd_generate_and_run(
             args.topic, args.context, args.output,
-            args.solid_bg, args.bg, speaker_id
+            args.solid_bg, args.bg, None
         )
     elif args.script:
         run_pipeline(args.script, args.output, args.solid_bg, args.bg,
-                     args.dry_run, speaker_id)
+                     args.dry_run, None)
     else:
         scripts = sorted(Path(SCRIPTS_DIR).glob("*.txt"))
         if not scripts:
