@@ -181,7 +181,7 @@ def main():
             sys.exit(1)
         print(f"  台本自動選択: {scripts[0]}")
         run_pipeline(str(scripts[0]), args.output, args.solid_bg, args.bg,
-                     args.dry_run, speaker_id)
+                     args.dry_run, None)
 
 
 if __name__ == "__main__":
