@@ -43,23 +43,25 @@ jobs:
         id: model-cache
         uses: actions/cache@v4.2.3
         with:
-          path: ~/.local/share/AivisSpeech-Engine/Models
+          path: /tmp/aivis-models
           key: aivis-model-default-v1
 
       - name: AivisSpeechモデルをダウンロード（キャッシュミス時）
         if: steps.model-cache.outputs.cache-hit != 'true'
         run: |
-          mkdir -p ~/.local/share/AivisSpeech-Engine/Models
+          mkdir -p /tmp/aivis-models
           echo "モデルをダウンロード中（251MB）..."
-          curl -L -o ~/.local/share/AivisSpeech-Engine/Models/default.aivmx \
+          curl -L -o /tmp/aivis-models/default.aivmx \
             https://github.com/finracofficial-cmd/youtubecreation/releases/download/models-v1/default.aivmx
           echo "✅ ダウンロード完了"
 
       - name: AivisSpeech Engine を起動
         run: |
+          # コンテナ内userがログ等を書けるようパーミッションを開放
+          chmod -R 777 /tmp/aivis-models
           docker run -d --name aivisspeech \
             -p 10101:10101 \
-            -v ~/.local/share/AivisSpeech-Engine:/home/user/.local/share/AivisSpeech-Engine-Dev \
+            -v /tmp/aivis-models:/home/user/.local/share/AivisSpeech-Engine-Dev/Models \
             ghcr.io/aivis-project/aivisspeech-engine:cpu-latest
           echo "エンジン起動待ち（最大10分）..."
           for i in $(seq 1 120); do
