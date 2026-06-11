@@ -129,6 +129,43 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
+      - name: Google Driveに動画をアップロード
+        env:
+          GOOGLE_DRIVE_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_CREDENTIALS }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+        run: |
+          pip install -q google-api-python-client google-auth
+          python - <<'EOF'
+          import os, json, glob
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaFileUpload
+          from google.oauth2 import service_account
+
+          creds_json = os.environ["GOOGLE_DRIVE_CREDENTIALS"]
+          folder_id  = os.environ["GOOGLE_DRIVE_FOLDER_ID"]
+
+          creds = service_account.Credentials.from_service_account_info(
+              json.loads(creds_json),
+              scopes=["https://www.googleapis.com/auth/drive.file"]
+          )
+          service = build("drive", "v3", credentials=creds)
+
+          files = glob.glob("output/*.mp4")
+          if not files:
+              print("❌ アップロードするMP4が見つかりません")
+              raise SystemExit(1)
+
+          for mp4 in files:
+              name = os.path.basename(mp4)
+              media = MediaFileUpload(mp4, mimetype="video/mp4", resumable=True)
+              file_meta = {"name": name, "parents": [folder_id]}
+              f = service.files().create(
+                  body=file_meta, media_body=media, fields="id,name,webViewLink"
+              ).execute()
+              print(f"✅ Google Driveにアップロード完了: {f['name']}")
+              print(f"   リンク: {f['webViewLink']}")
+          EOF
+
       - name: 台本もアップロード
         uses: actions/upload-artifact@v4.6.2
         if: always()
