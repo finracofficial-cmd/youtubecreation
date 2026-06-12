@@ -160,7 +160,8 @@ jobs:
               media = MediaFileUpload(mp4, mimetype="video/mp4", resumable=True)
               file_meta = {"name": name, "parents": [folder_id]}
               f = service.files().create(
-                  body=file_meta, media_body=media, fields="id,name,webViewLink"
+                  body=file_meta, media_body=media, fields="id,name,webViewLink",
+                  supportsAllDrives=True
               ).execute()
               print(f"✅ Google Driveにアップロード完了: {f['name']}")
               print(f"   リンク: {f['webViewLink']}")
