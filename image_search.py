@@ -28,6 +28,34 @@ def extract_search_queries(script_text: str, n: int = 10) -> list[str]:
     return queries[:n]
 
 
+def extract_video_queries(script_text: str, n: int = 6) -> list[str]:
+    """
+    台本テキストからPexels動画検索に適した英語キーワードをClaudeが抽出する。
+    Pexelsはフリー素材なので人物固有名詞ではなく情景・場所・テーマで検索する。
+    """
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    excerpt = script_text[:3000]
+    response = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=300,
+        messages=[{
+            "role": "user",
+            "content": (
+                f"以下の台本の内容・テーマに合ったPexels動画検索用の英語キーワードを{n}個考えてください。\n"
+                "Pexelsはフリー素材サイトなので、人名ではなく「情景・場所・雰囲気・テーマ」で検索します。\n"
+                "例: 台本が皇室の話なら「imperial palace japan」「traditional ceremony japan」など。\n"
+                "例: 台本が軍事の話なら「military navy ship」「fighter jet」「defense meeting」など。\n"
+                "例: 台本が政治の話なら「parliament building」「government meeting」「press conference」など。\n"
+                "1行に1つ、英語で出力してください。説明不要。\n\n"
+                + excerpt
+            )
+        }]
+    )
+    queries = [line.strip() for line in response.content[0].text.strip().splitlines() if line.strip()]
+    print(f"  動画検索クエリ: {queries}")
+    return queries[:n]
+
+
 # 動画背景に耐える最低解像度（横幅・縦幅）
 MIN_IMAGE_WIDTH = 800
 MIN_IMAGE_HEIGHT = 600

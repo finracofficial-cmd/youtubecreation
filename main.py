@@ -125,11 +125,31 @@ def run_pipeline(script_path: str, output_name: str | None = None,
         clips_dir = str(temp_dir / "bg_clips")
         images_dir = str(temp_dir / "bg_images")
 
-        print(f"  背景動画クリップを{n_video}本ダウンロード中...")
-        clip_paths = pexels.fetch_multiple_backgrounds(bg_query, clips_dir, n=n_video)
+        # 台本内容からPexels検索キーワードをClaudeが抽出
+        from image_search import extract_video_queries, fetch_script_images
+        video_queries = extract_video_queries(
+            script_path.read_text(encoding="utf-8"), n=6
+        )
+        # クエリごとに均等本数ダウンロードして混合
+        import math as _math
+        n_per_vq = max(1, _math.ceil(n_video / len(video_queries)))
+        clip_paths = []
+        for vq in video_queries:
+            if len(clip_paths) >= n_video:
+                break
+            need = min(n_per_vq, n_video - len(clip_paths))
+            vq_dir = str(Path(clips_dir) / vq.replace(" ", "_")[:30])
+            print(f"  背景動画「{vq}」を{need}本ダウンロード中...")
+            try:
+                paths = pexels.fetch_multiple_backgrounds(vq, vq_dir, n=need)
+                clip_paths.extend(paths)
+            except Exception as e:
+                print(f"  スキップ ({vq}): {e}")
+        if not clip_paths:
+            print("  ⚠️ 台本クエリで動画が取れなかった → フォールバック")
+            clip_paths = pexels.fetch_multiple_backgrounds(bg_query, clips_dir, n=n_video)
 
         # 台本内容からGoogle画像検索（Serper）で高画質画像を取得
-        from image_search import fetch_script_images
         print(f"  台本関連画像をGoogle画像検索で取得中...")
         image_paths = fetch_script_images(
             script_path.read_text(encoding="utf-8"),
