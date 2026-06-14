@@ -28,7 +28,7 @@ def extract_search_queries(script_text: str, n: int = 10) -> list[str]:
     return queries[:n]
 
 
-def extract_video_queries(script_text: str, n: int = 6) -> list[str]:
+def extract_video_queries(script_text: str, n: int = 12) -> list[str]:
     """
     台本テキストからPexels動画検索に適した英語キーワードをClaudeが抽出する。
     Pexelsはフリー素材なので人物固有名詞ではなく情景・場所・テーマで検索する。
@@ -37,23 +37,30 @@ def extract_video_queries(script_text: str, n: int = 6) -> list[str]:
     excerpt = script_text[:3000]
     response = client.messages.create(
         model="claude-haiku-4-5",
-        max_tokens=300,
+        max_tokens=500,
         messages=[{
             "role": "user",
             "content": (
                 f"以下の台本の内容・テーマに合ったPexels動画検索用の英語キーワードを{n}個考えてください。\n"
-                "Pexelsはフリー素材サイトなので、人名ではなく「情景・場所・雰囲気・テーマ」で検索します。\n"
-                "例: 台本が皇室の話なら「imperial palace japan」「traditional ceremony japan」など。\n"
-                "例: 台本が軍事の話なら「military navy ship」「fighter jet」「defense meeting」など。\n"
-                "例: 台本が政治の話なら「parliament building」「government meeting」「press conference」など。\n"
-                "1行に1つ、英語で出力してください。説明不要。\n\n"
+                "以下の3カテゴリをバランスよく混ぜてください：\n"
+                "① 台本の主題に直結する場面（例: 皇室→「imperial palace ceremony」「royal procession」）\n"
+                "② 台本の雰囲気・感情に合う映像（例: 緊張感→「city traffic night」「storm clouds」）\n"
+                "③ 汎用的な背景として使える映像（例:「japan aerial view」「parliament building」「news studio」）\n"
+                "Pexelsにありそうな具体的な英語フレーズで出力してください。\n"
+                "1行に1つ、説明不要。\n\n"
                 + excerpt
             )
         }]
     )
     queries = [line.strip() for line in response.content[0].text.strip().splitlines() if line.strip()]
-    print(f"  動画検索クエリ: {queries}")
-    return queries[:n]
+    # 番号付きリストの番号を除去
+    cleaned = []
+    for q in queries:
+        q = q.lstrip("0123456789.-) ").strip()
+        if q:
+            cleaned.append(q)
+    print(f"  動画検索クエリ: {cleaned}")
+    return cleaned[:n]
 
 
 # 動画背景に耐える最低解像度（横幅・縦幅）

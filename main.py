@@ -128,7 +128,7 @@ def run_pipeline(script_path: str, output_name: str | None = None,
         # 台本内容からPexels検索キーワードをClaudeが抽出
         from image_search import extract_video_queries, fetch_script_images
         video_queries = extract_video_queries(
-            script_path.read_text(encoding="utf-8"), n=6
+            script_path.read_text(encoding="utf-8"), n=12
         )
         # クエリごとに均等本数ダウンロードして混合
         import math as _math
