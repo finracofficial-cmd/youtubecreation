@@ -28,7 +28,7 @@ def extract_search_queries(script_text: str, n: int = 10) -> list[str]:
     return queries[:n]
 
 
-def extract_video_queries(script_text: str, n: int = 12) -> list[str]:
+def extract_video_queries(script_text: str, n: int = 8) -> list[str]:
     """
     台本テキストからPexels動画検索に適した英語キーワードをClaudeが抽出する。
     Pexelsはフリー素材なので人物固有名詞ではなく情景・場所・テーマで検索する。
