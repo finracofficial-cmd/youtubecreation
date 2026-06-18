@@ -44,7 +44,7 @@ def get_best_url(video: dict) -> str | None:
 
 def download_video(url: str, output_path: str) -> str:
     """動画をダウンロードして保存する"""
-    r = requests.get(url, stream=True, timeout=120)
+    r = requests.get(url, stream=True, timeout=300)
     r.raise_for_status()
     with open(output_path, "wb") as f:
         for chunk in r.iter_content(chunk_size=65536):

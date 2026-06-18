@@ -81,7 +81,7 @@ def run_pipeline(script_path: str, output_name: str | None = None,
             lines, str(temp_dir / "audio"),
             speaker=effective_speaker, speed=TTS_SPEED
         )
-    except RuntimeError as e:
+    except Exception as e:
         print(f"❌ TTS失敗: {e}")
         sys.exit(1)
 

@@ -263,14 +263,15 @@ def create_mixed_background(video_paths: list[str], image_paths: list[str],
     if not all_clips:
         raise ValueError("クリップが1本もありません")
 
-    # 必要な秒数になるまでリストを繰り返す
-    needed = math.ceil(total_duration / min(clip_duration, image_clip_duration))
+    # 必要な秒数になるまでリストを繰り返す（クリップ数 × 各クリップ秒数 ≥ total_duration）
+    avg_clip_sec = (clip_duration * len(trimmed_videos) + image_clip_duration * len(animated_images)) / max(len(all_clips), 1)
+    needed = math.ceil(total_duration / avg_clip_sec) + 2
     entries = []
     while len(entries) < needed:
         pool = all_clips[:]
         random.shuffle(pool)
         entries.extend(pool)
-    entries = entries[:needed * 2]  # 余裕を持って用意
+    entries = entries[:needed]
 
     list_file = str(temp_dir / "mixed_list.txt")
     with open(list_file, "w") as f:

@@ -58,7 +58,7 @@ Timer: 100.0000
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{SUBTITLE_FONT},{SUBTITLE_FONT_SIZE},{SUBTITLE_COLOR},&H000000FF,{SUBTITLE_OUTLINE_COLOR},&H00000000,-1,0,0,0,100,100,0,0,1,{SUBTITLE_OUTLINE},0,2,10,10,{SUBTITLE_MARGIN_V},1
+Style: Default,{SUBTITLE_FONT},{SUBTITLE_FONT_SIZE},{SUBTITLE_COLOR},&H000000FF,{SUBTITLE_OUTLINE_COLOR},&H00000000,1,0,0,0,100,100,0,0,1,{SUBTITLE_OUTLINE},0,2,10,10,{SUBTITLE_MARGIN_V},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

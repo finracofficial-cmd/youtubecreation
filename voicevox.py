@@ -92,7 +92,18 @@ def synthesize_batch(lines: list[str], output_dir: str,
             continue
 
         t0 = time.time()
-        duration = synthesize(line, wav_path, speaker=speaker, speed=speed)
+        last_exc = None
+        for attempt in range(3):
+            try:
+                duration = synthesize(line, wav_path, speaker=speaker, speed=speed)
+                break
+            except Exception as e:
+                last_exc = e
+                wait = 2 ** attempt
+                print(f"  ⚠️ TTS試行{attempt+1}失敗 ({e}) → {wait}秒後リトライ")
+                time.sleep(wait)
+        else:
+            raise RuntimeError(f"TTS 3回失敗: {last_exc}")
         elapsed = time.time() - t0
         results.append((wav_path, duration))
         print(f"  [{i+1}/{len(lines)}] {line[:25]}... → {duration:.2f}s ({elapsed:.1f}s)")
