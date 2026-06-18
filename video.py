@@ -125,7 +125,7 @@ def create_varied_background(video_paths: list[str], output_path: str,
             "-t", str(clip_duration),
             "-vf", f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}",
             "-r", str(VIDEO_FPS),
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
             "-an",
             out
         ])
@@ -231,7 +231,7 @@ def create_mixed_background(video_paths: list[str], image_paths: list[str],
             "-t", str(clip_duration),
             "-vf", f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}:force_original_aspect_ratio=increase,crop={VIDEO_WIDTH}:{VIDEO_HEIGHT}",
             "-r", str(VIDEO_FPS),
-            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p", "-an",
+            "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-an",
             out
         ])
         trimmed_videos.append(out)

@@ -119,8 +119,8 @@ def run_pipeline(script_path: str, output_name: str | None = None,
         clip_sec = 10.0
         image_sec = 5.0
         # 動画クリップ: 全体の2/3、画像クリップ: 1/3 を目安に本数計算
-        n_video = min(math.ceil(total_duration / clip_sec * 2 / 3), 40)
-        n_image = min(math.ceil(total_duration / image_sec * 1 / 3), 20)
+        n_video = min(math.ceil(total_duration / clip_sec * 2 / 3), 15)
+        n_image = min(math.ceil(total_duration / image_sec * 1 / 3), 8)
 
         clips_dir = str(temp_dir / "bg_clips")
         images_dir = str(temp_dir / "bg_images")
