@@ -293,32 +293,27 @@ def overlay_announcer(background_video: str, announcer_video: str,
                       output_path: str, total_duration: float,
                       scale_height: int = 800) -> str:
     """
-    アナウンサー動画（背景透過済みまたはグリーンバック）を
-    背景動画の中央下部にループ合成する。
-    アルファチャンネルがあればそのまま使い、なければcolorkey（黒抜き）を試みる。
+    アナウンサー動画を背景動画の中央下部にループ合成する。
+    announcer_video と同じディレクトリに _alpha.webm があればそちらを優先使用
+    （rembgで生成した完全透過版）。なければcolorkey（黒抜き）でフォールバック。
     """
-    import subprocess as _sp
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # アルファチャンネルの有無を確認
-    probe = _sp.run([
-        "ffprobe", "-v", "quiet", "-select_streams", "v:0",
-        "-show_entries", "stream=pix_fmt",
-        "-of", "csv=p=0", announcer_video
-    ], capture_output=True, text=True)
-    pix_fmt = probe.stdout.strip()
-    has_alpha = "a" in pix_fmt  # yuva420p, rgba など
-    print(f"  アナウンサー pix_fmt={pix_fmt} has_alpha={has_alpha}")
+    # アルファ版WebMが存在すればそちらを使う
+    alpha_webm = Path(announcer_video).with_suffix("").as_posix() + "_alpha.webm"
+    if Path(alpha_webm).exists():
+        ann_abs = str(Path(alpha_webm).resolve())
+        print(f"  アナウンサー: アルファ版WebM使用 ({ann_abs})")
+        use_alpha = True
+    else:
+        ann_abs = str(Path(announcer_video).resolve())
+        print(f"  アナウンサー: オリジナルMP4（colorkey）使用")
+        use_alpha = False
 
-    ann_abs = str(Path(announcer_video).resolve())
-
-    # 中央横・縦は下寄せ（字幕より上）
-    y_pos = "(H-h)*3/4"
     x_pos = "(W-w)/2"
+    y_pos = "(H-h)*3/4"
 
-    if has_alpha:
-        # アルファチャンネルで透過合成
-        # -stream_loop -1 でインプット段階でループ、filter内でloopは使わない
+    if use_alpha:
         filter_complex = (
             f"[0:v]scale=-1:{scale_height}[ann];"
             f"[1:v][ann]overlay={x_pos}:{y_pos}"
@@ -333,7 +328,6 @@ def overlay_announcer(background_video: str, announcer_video: str,
             "-an", output_path
         ])
     else:
-        # 黒背景抜き（colorkey）でフォールバック
         filter_complex = (
             f"[0:v]scale=-1:{scale_height},"
             f"colorkey=black:0.25:0.05[ann];"
