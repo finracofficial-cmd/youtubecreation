@@ -289,6 +289,68 @@ def create_mixed_background(video_paths: list[str], image_paths: list[str],
     return output_path
 
 
+def overlay_announcer(background_video: str, announcer_video: str,
+                      output_path: str, total_duration: float,
+                      scale_height: int = 500) -> str:
+    """
+    アナウンサー動画（背景透過済みまたはグリーンバック）を
+    背景動画の中央下部にループ合成する。
+    アルファチャンネルがあればそのまま使い、なければcolorkey（黒抜き）を試みる。
+    """
+    import subprocess as _sp
+    Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+    # アルファチャンネルの有無を確認
+    probe = _sp.run([
+        "ffprobe", "-v", "quiet", "-select_streams", "v:0",
+        "-show_entries", "stream=pix_fmt",
+        "-of", "csv=p=0", announcer_video
+    ], capture_output=True, text=True)
+    pix_fmt = probe.stdout.strip()
+    has_alpha = "a" in pix_fmt  # yuva420p, rgba など
+
+    ann_abs = str(Path(announcer_video).resolve())
+
+    # アナウンサーをスケール（縦scale_height px、横はアスペクト維持）
+    # 中央横・縦は下から10%上（字幕の上に被らないよう）に配置
+    y_pos = f"(H-h)*4/5"
+    x_pos = "(W-w)/2"
+
+    if has_alpha:
+        # アルファチャンネルで透過合成
+        filter_complex = (
+            f"[0:v]scale=-1:{scale_height},"
+            f"loop=-1:1:0,trim=duration={total_duration}[ann];"
+            f"[1:v][ann]overlay={x_pos}:{y_pos}:shortest=0"
+        )
+        _run([
+            "ffmpeg", "-y",
+            "-stream_loop", "-1", "-i", ann_abs,
+            "-i", background_video,
+            "-filter_complex", filter_complex,
+            "-t", str(total_duration),
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-an", output_path
+        ])
+    else:
+        # 黒背景抜き（colorkey）でフォールバック
+        filter_complex = (
+            f"[0:v]scale=-1:{scale_height},"
+            f"colorkey=black:0.3:0.1[ann];"
+            f"[1:v][ann]overlay={x_pos}:{y_pos}"
+        )
+        _run([
+            "ffmpeg", "-y",
+            "-stream_loop", "-1", "-i", ann_abs,
+            "-i", background_video,
+            "-filter_complex", filter_complex,
+            "-t", str(total_duration),
+            "-c:v", "libx264", "-preset", "fast", "-pix_fmt", "yuv420p",
+            "-an", output_path
+        ])
+    return output_path
+
+
 def get_video_duration(video_path: str) -> float:
     """動画の長さを取得する"""
     result = subprocess.run([

@@ -162,6 +162,18 @@ def run_pipeline(script_path: str, output_name: str | None = None,
             clip_duration=clip_sec, image_clip_duration=image_sec
         )
 
+    # ── Step 4.5: アナウンサーオーバーレイ ───────────────────────
+    announcer_asset = Path(__file__).parent / "assets" / "announcer_loop.mp4"
+    if announcer_asset.exists():
+        print("\n=== Step 4.5: アナウンサーオーバーレイ合成 ===")
+        bg_with_ann = str(temp_dir / "background_with_announcer.mp4")
+        vid.overlay_announcer(looped_bg_path, str(announcer_asset),
+                              bg_with_ann, total_duration)
+        looped_bg_path = bg_with_ann
+        print(f"  → {bg_with_ann}")
+    else:
+        print("\n  [スキップ] assets/announcer_loop.mp4 が見つかりません")
+
     # ── Step 5: 最終合成 ──────────────────────────────────────────
     print("\n=== Step 5: 動画合成（背景＋音声＋字幕） ===")
     vid.assemble(looped_bg_path, concat_audio_path, ass_path,
