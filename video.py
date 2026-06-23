@@ -291,7 +291,7 @@ def create_mixed_background(video_paths: list[str], image_paths: list[str],
 
 def overlay_announcer(background_video: str, announcer_video: str,
                       output_path: str, total_duration: float,
-                      scale_height: int = 500) -> str:
+                      scale_height: int = 800) -> str:
     """
     アナウンサー動画（背景透過済みまたはグリーンバック）を
     背景動画の中央下部にループ合成する。
@@ -308,20 +308,20 @@ def overlay_announcer(background_video: str, announcer_video: str,
     ], capture_output=True, text=True)
     pix_fmt = probe.stdout.strip()
     has_alpha = "a" in pix_fmt  # yuva420p, rgba など
+    print(f"  アナウンサー pix_fmt={pix_fmt} has_alpha={has_alpha}")
 
     ann_abs = str(Path(announcer_video).resolve())
 
-    # アナウンサーをスケール（縦scale_height px、横はアスペクト維持）
-    # 中央横・縦は下から10%上（字幕の上に被らないよう）に配置
-    y_pos = f"(H-h)*4/5"
+    # 中央横・縦は下寄せ（字幕より上）
+    y_pos = "(H-h)*3/4"
     x_pos = "(W-w)/2"
 
     if has_alpha:
         # アルファチャンネルで透過合成
+        # -stream_loop -1 でインプット段階でループ、filter内でloopは使わない
         filter_complex = (
-            f"[0:v]scale=-1:{scale_height},"
-            f"loop=-1:1:0,trim=duration={total_duration}[ann];"
-            f"[1:v][ann]overlay={x_pos}:{y_pos}:shortest=0"
+            f"[0:v]scale=-1:{scale_height}[ann];"
+            f"[1:v][ann]overlay={x_pos}:{y_pos}"
         )
         _run([
             "ffmpeg", "-y",
@@ -336,7 +336,7 @@ def overlay_announcer(background_video: str, announcer_video: str,
         # 黒背景抜き（colorkey）でフォールバック
         filter_complex = (
             f"[0:v]scale=-1:{scale_height},"
-            f"colorkey=black:0.3:0.1[ann];"
+            f"colorkey=black:0.25:0.05[ann];"
             f"[1:v][ann]overlay={x_pos}:{y_pos}"
         )
         _run([
