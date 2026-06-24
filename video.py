@@ -294,33 +294,31 @@ def overlay_announcer(background_video: str, announcer_video: str,
                       scale_height: int = 800) -> str:
     """
     アナウンサー動画を背景動画の中央下部にループ合成する。
-    announcer_video と同じディレクトリに _alpha.webm があればそちらを優先使用
-    （rembgで生成した完全透過版）。なければcolorkey（黒抜き）でフォールバック。
+
+    announcer_video はカラー動画(_color.mp4)を指す。同じ場所の _matte.mp4 を
+    alphamergeで合成して背景を完全透過する（VP9アルファ非対応環境でも確実に動く）。
+    ペアが無い場合はcolorkey（黒抜き）にフォールバック。
     """
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # アルファ版WebMが存在すればそちらを使う
-    alpha_webm = Path(announcer_video).with_suffix("").as_posix() + "_alpha.webm"
-    if Path(alpha_webm).exists():
-        ann_abs = str(Path(alpha_webm).resolve())
-        print(f"  アナウンサー: アルファ版WebM使用 ({ann_abs})")
-        use_alpha = True
-    else:
-        ann_abs = str(Path(announcer_video).resolve())
-        print(f"  アナウンサー: オリジナルMP4（colorkey）使用")
-        use_alpha = False
+    color_mp4 = str(announcer_video)
+    matte_mp4 = color_mp4.replace("_color.mp4", "_matte.mp4")
 
     x_pos = "(W-w)/2"
     y_pos = "(H-h)*3/4"
 
-    if use_alpha:
+    if Path(color_mp4).exists() and Path(matte_mp4).exists():
+        print(f"  アナウンサー: カラー+マット方式で透過合成")
+        color_abs = str(Path(color_mp4).resolve())
+        matte_abs = str(Path(matte_mp4).resolve())
         filter_complex = (
-            f"[0:v]scale=-1:{scale_height}[ann];"
-            f"[1:v][ann]overlay={x_pos}:{y_pos}"
+            f"[0:v][1:v]alphamerge,scale=-1:{scale_height}[ann];"
+            f"[2:v][ann]overlay={x_pos}:{y_pos}"
         )
         _run([
             "ffmpeg", "-y",
-            "-stream_loop", "-1", "-i", ann_abs,
+            "-stream_loop", "-1", "-i", color_abs,
+            "-stream_loop", "-1", "-i", matte_abs,
             "-i", background_video,
             "-filter_complex", filter_complex,
             "-t", str(total_duration),
@@ -328,6 +326,8 @@ def overlay_announcer(background_video: str, announcer_video: str,
             "-an", output_path
         ])
     else:
+        print(f"  アナウンサー: カラー/マット未検出 → colorkey黒抜きにフォールバック")
+        ann_abs = str(Path(announcer_video).resolve())
         filter_complex = (
             f"[0:v]scale=-1:{scale_height},"
             f"colorkey=black:0.25:0.05[ann];"
